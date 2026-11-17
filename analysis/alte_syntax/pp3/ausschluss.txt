@@ -1,0 +1,6 @@
+"Ausschluss" "Anzahl"
+"Personen mit Ausbildung: Dreijährige Fachschule für Pädagogische Assistent/inn/en" 15
+"Personen, die nicht auf die nicht auf die letzte Seite gekommen sind" 1134
+"Personen ohne Angaben von Schuladresse und damit Bundesland" 244
+"Personen in BHS Land- und Forstwirtschaft --> tw. anderes Ministerium" 267
+"Gesamt" 1660

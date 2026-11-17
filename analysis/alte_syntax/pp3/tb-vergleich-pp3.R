@@ -1,0 +1,356 @@
+library(tidyverse)
+library(rstudioapi)
+library(flextable)
+library(sjmisc)
+library(sjlabelled)
+library(janitor)
+library(officer)
+library(openxlsx)
+
+pp_tb <- readRDS("pp_tb.RData")
+pp_tb_vgl <- pp_tb %>%
+  filter(schultyp_rec %>% as_numeric < 9) %>% 
+  mutate(q38_einkommen_gesamt_kat_rec = case_when(q38_einkommen_gesamt_kat %>% str_detect("1251|1501|1751|Mehr") ~ "Mehr als 1250 Euro",
+                                                  .default = q38_einkommen_gesamt_kat) %>% 
+           factor(levels = c("Kein Einkommen",
+                             "1-250 Euro",
+                             "251-500 Euro",
+                             "501-750 Euro",
+                             "751-1000 Euro",
+                             "1001-1250 Euro",
+                             "Mehr als 1250 Euro")),
+         q18_anz_bew_kat2 = if_else(q18_anz_bew_kat2 %>% str_detect("1 Bew|3 Bew|5 Bew"), "bis 5 Bewerbungen", q18_anz_bew_kat2) %>% 
+           factor(levels = c("bis 5 Bewerbungen",
+                             "6-10 Bewerbungen",
+                             "11-20 Bewerbungen",
+                             "mehr als 20 Bewerbungen")),
+         richtung_geschlecht = fct_drop(richtung_geschlecht, c("Männlich - Pädagogisch",
+                                                               "Weiblich - Pädagogisch",
+                                                               "Männlich - Soziales",
+                                                               "Weiblich - Soziales")),
+         schultyp_rec = fct_drop(schultyp_rec, c("BHS (pädag.)",
+                                                 "BMS (sozial)"))
+         )
+
+# breaks_tab <- readRDS("breaks_tab.RData")
+breaks_tab <- c(
+  "total",
+  "q01_rec",
+  "schultyp_rec",
+  "richtung_geschlecht",
+  "Bundesland",
+  "betrieb",
+  "sprache",
+  "sozialer_hg",
+  "regional",
+  "pläne",
+  "bleiben",
+  "q36",
+  "q31_ueberstunden",
+  "q55",
+  "cluster_qualitaet_3"
+                )
+lbl.var.df <- readRDS("Variablenabgleich_alt_neu.RData")
+
+vorlagen.path <- paste0(getwd() %>% str_remove("(?<=\\/data\\/).+"), "8_Mitarbeiterordner/Georg/Vorlagen/")
+# source(paste0(vorlagen.path,"functions_tabellenband.R"), encoding = "latin1")
+source(paste0(vorlagen.path,"functions_praktisch.R"), encoding = "latin1")
+cb.pp3 <- pp_tb %>% fnc.codebook()
+
+a <- c(
+  "q16", # das sind die Variablen für den Vergleich
+"q17_",
+"g21_",
+"q31_ueberstunden",
+"q32",
+"q37",
+"q18_anz_bew_kat2",
+"q38_einkommen_gesamt_kat_rec",
+"q23_",
+"q45_")
+
+b <- lbl.var.df %>% 
+  filter(pp.variable %>% 
+           str_detect(a %>% paste0(collapse = "|"))) %>% 
+  filter(str_detect(pp.variable, "_n|_total", negate = T)) %>% 
+  filter(str_detect(pp.variable, "_unterstue", negate = T)) %>% 
+  bind_rows(tribble(~pp.variable, ~pp.label, ~strng, ~ma.kategorie, ~Frage, ~analytisch, ~var.typ, ~newvar, ~filter, ~filter_vars,
+                    "q38_einkommen_gesamt_kat_rec", "Netto-Gehalt pro Monat","q38",NA,NA,TRUE,"Kategorisch",NA,0,1))
+
+kat.vars <- b %>% 
+  filter(var.typ=="Kategorisch") %>% 
+  select(pp.variable) %>% 
+  unlist %>% 
+  as.vector
+
+mehr.vars <- b %>%
+  filter(analytisch == T & var.typ == "Mehrfach") %>% 
+  group_by(strng) %>%
+  reframe(var = list(pp.variable)) %>% 
+  distinct %>% 
+  # arrange(strng) %>% 
+  select(-strng) %>% 
+  reduce(~ .x)
+
+rati.vars <- b %>%
+  filter(analytisch == T & var.typ == "Rating") %>% 
+  group_by(strng) %>%
+  reframe(var = list(pp.variable)) %>% 
+  select(-strng) %>% 
+  reduce(~ .x)
+
+
+lbs.kat <- b %>%
+  filter(var.typ=="Kategorisch") %>% 
+  mutate(newvar = if_else(pp.variable == "q38_einkommen_gesamt_kat_rec", "F16", newvar),
+         newvar = paste0("2024 - ", newvar),
+         Frage = if_else(pp.variable == "q38_einkommen_gesamt_kat_rec", "Netto-Gehalt pro Monat", Frage))
+lbs.mehr <- b %>%
+  filter(var.typ == "Mehrfach") %>% 
+  filter(pp.variable %>% str_detect("_other", negate = T)) %>% 
+  mutate(string = strng,
+         newvar = paste0("2024 - ", newvar)) %>% 
+  group_by(string) %>% 
+  group_map(~.x)
+lbs.rati <- b %>%
+  filter(var.typ == "Rating") %>% 
+  filter(pp.variable %>% str_detect("_other", negate = T)) %>% 
+  mutate(newvar = paste0("2024 - ", newvar))
+
+# Tabellen erzeugen
+
+### Kat
+tbl.kat <- list()
+# for(i in 3:4){
+for (i in 1:length(kat.vars)) {
+  tbl.kat[[i]] <- tbl.band.fnc(pp_tb_vgl, var = kat.vars[i], brk = breaks_tab, weighted = T, weight = "gewicht")
+}
+tbl.kat <- map(tbl.kat, ~.x[[1]])
+names(tbl.kat) <- kat.vars
+## Mind. 35h Arbeitsstunden pro Woche für Einkommensvergleich:
+tbl.kat[["q38_einkommen_gesamt_kat_rec"]] <- tbl.band.fnc(pp_tb_vgl %>% filter(q31_ueberstunden %>% as.integer >= 3), var = "q38_einkommen_gesamt_kat_rec", brk = breaks_tab, weighted = T, weight = "gewicht")[[1]]
+
+### Rating
+tbl.rati <- map(rati.vars, ~ tbl.band.num.fnc(pp_tb_vgl, brk = breaks_tab, var = .x, weighted = T, weight = "gewicht"))
+names(tbl.rati) <- map(rati.vars, ~ .x %>% str_extract(".+(?=_.+)") %>% unique)
+
+### Mehrfach
+tbl.mehr <- map(mehr.vars, ~
+                  tbl.band.fnc(pp_tb_vgl, var = .x, brk = breaks_tab, weighted = T, weight = "gewicht"))
+names(tbl.mehr) <- map(mehr.vars, ~ .x %>% str_extract(".+(?=_.+)") %>% unique)
+
+
+## Nachtraeglich
+tbl.list <- list(tbl.kat = tbl.kat, 
+                 tbl.rati = tbl.rati, 
+                 tbl.mehr = tbl.mehr)
+
+
+## q23 als Mehrfachantwort definieren
+x <- tbl.list$tbl.mehr[[which(names(tbl.list$tbl.mehr) == "q23")]]
+y <- reduce(map(x, ~ .x %>% select(Ja)), function(x,y) cbind(x,y))
+names(y) <- letters[1:length(y)]
+dims <- dim(x[[1]])
+out <- x[[1]] %>%
+  select(-c(3:(dims[2]-2))) %>% 
+  cbind(y) %>% 
+  as_tibble() %>% 
+  relocate(c(3,4), .after=last_col())
+tbl.list$tbl.mehr[["q23"]] <- out
+
+
+## mehrfachkategorien in tbl.mehr benennen
+for (i in 1:length(tbl.list$tbl.mehr)) {
+  names(tbl.list$tbl.mehr[[i]]) <- c("Fragestellung","Kategorie", lbs.mehr[[i]] %>% select(ma.kategorie) %>% unique %>% unlist %>% as.vector, "Gesamt","n (gültig)")
+}
+
+for (i in 1:length(tbl.list$tbl.rati)) {
+  names(tbl.list$tbl.rati[[i]]) <- c("Fragestellung","Kategorie", lbs.rati %>% select(ma.kategorie) %>% unique %>% unlist %>% as.vector, "n (min)")
+}
+
+tbl.list.2gether <- c(tbl.list[["tbl.kat"]],
+                      tbl.list[["tbl.rati"]],
+                      tbl.list[["tbl.mehr"]])
+
+
+# Flextables
+### kategorisch
+kat <- list()
+# for (i in 3:4){
+for (i in 1:length(tbl.list$tbl.kat)){
+  kat[[i]] <- flextable.kategorisch.fnc(tbl.list$tbl.kat[[i]],
+                                        frage = lbs.kat[i,] %>% select(Frage) %>% unique %>% unlist,
+                                        variablename = lbs.kat[i,] %>% select(newvar) %>% unique %>% unlist)
+  names(kat)[i] <- lbs.kat[i,] %>% select(newvar) %>% unique %>% unlist
+}
+
+### Rating
+rati <- list()
+for (i in 1:length(tbl.list$tbl.rati)){
+  rati[[i]] <- flextable.rating.fnc(tbl.list$tbl.rati[[i]],
+                                    frage = lbs.rati %>% select(Frage) %>% unique %>% unlist,
+                                    kategorie = lbs.rati %>% select(ma.kategorie) %>% unique %>% unlist,
+                                    variablename = lbs.rati %>% select(newvar) %>% unique %>% unlist)
+  names(rati)[i] <- lbs.rati[1,] %>% select(newvar) %>% unique %>% unlist
+}
+
+
+### Mehrfach
+mehr <- list()
+# for (i in 1:1){
+for (i in 1:length(tbl.list$tbl.mehr)){
+  mehr[[i]] <- flextable.mehrfach.fnc(tbl.list$tbl.mehr[[i]],
+                                      frage = lbs.mehr[[i]] %>% select(Frage) %>% unique %>% unlist,
+                                      variablename = lbs.mehr[[i]] %>% select(newvar) %>% unique %>% unlist,
+                                      kategorie = lbs.mehr[[i]] %>% select(ma.kategorie) %>% unique %>% unlist)
+  names(mehr)[i] <- lbs.mehr[[i]][1,] %>% select(newvar) %>% unique %>% unlist
+  }
+
+# ft.list <- c(kat,
+#              rati,
+#              mehr)
+# 
+
+
+## nachtraeglich
+# neu1: 5.4.2024: Tabellen, die zu breit sind, in Teil-tabellen trennen und urspr?ngliche ersetzen.
+x <- lbl.var.df %>% # variablen, deren Flextables wegen zu gro?er Breite aufgeteilt werden m?ssen
+  filter(pp.variable %>% str_detect("q17|q23_\\d+$|q45_\\d+$")) %>% # letzter Stand: q17 hinzufügen
+  distinct(strng) %>% 
+  unlist %>% 
+  paste0(collapse = "|")
+y <- tbl.list.2gether[which(names(tbl.list.2gether) %>% str_detect(x))] # Variablen aus tbl extrahieren
+y <- y[names(y) %>% sort] # Liste mit alter und neuer Beziechnung; in richtige Reihenfolge bringen
+tbl.long <- list(
+  # q17
+  y[[1]] %>% 
+    select(1:2, 3:8, (ncol(.)-1):(ncol(.))),
+  y[[1]] %>% 
+    select(1:2, 9:13, (ncol(.)-1):(ncol(.))),
+  # q23
+  y[[2]] %>% 
+    select(1:2, 3:9, (ncol(.)-1):(ncol(.))),
+  y[[2]] %>% 
+    select(1:2, 10:15, (ncol(.)-1):(ncol(.))),
+  # q45
+  y[[3]] %>% 
+    select(1:2, 3:7, (ncol(.)):(ncol(.))),
+  y[[3]] %>% 
+    select(1:2, 8:12, (ncol(.)):(ncol(.)))
+)
+# names.long <- c("q22a","q42")
+# names(tbl.long) <- names.long
+
+# Labels und Fragen
+lbs.long <- list(
+  lbs.mehr[[2]][1:6,] %>% mutate(newvar = paste0(newvar, " (Teil 1)")),# %>% unlist %>% as.vector,
+  lbs.mehr[[2]][7:11,] %>% mutate(newvar = paste0(newvar, " (Teil 2)")),# %>% unlist %>% as.vector,
+  lbs.mehr[[3]][1:6,] %>% mutate(newvar = paste0(newvar, " (Teil 1)")),# %>% unlist %>% as.vector,
+  lbs.mehr[[3]][7:11,] %>% mutate(newvar = paste0(newvar, " (Teil 2)")),# %>% unlist %>% as.vector,
+  lbs.rati[1:5,] %>% mutate(newvar = paste0(newvar, " (Teil 1)")),# %>% unlist %>% as.vector,
+  lbs.rati[6:10,] %>% mutate(newvar = paste0(newvar, " (Teil 2)"))# %>% unlist %>% as.vector,
+)
+
+# Flextable Mehrfach
+long.mehrfach <- list()
+for (i in 1:4){
+  long.mehrfach[[i]] <- flextable.mehrfach.fnc(tbl.long[[i]],
+                                               frage = lbs.long[[i]] %>% select(Frage) %>% unique %>% unlist,
+                                               variablename = lbs.long[[i]] %>% select(newvar) %>% unique %>% unlist,
+                                               kategorie = lbs.long[[i]] %>% select(ma.kategorie) %>% unique %>% unlist)
+}
+long.mehrfach <- long.mehrfach %>% 
+  compact
+names(long.mehrfach) <- map(lbs.long, ~ .x$newvar %>% unique)[1:4]
+
+
+# # Flextable rating
+long.rating <- list()
+for (i in 5:6){
+  long.rating[[i]] <- flextable.rating.fnc(tbl.long[[i]],
+                                           frage = lbs.long[[i]] %>% select(Frage) %>% unique %>% unlist,
+                                           variablename = lbs.long[[i]] %>% select(newvar) %>% unique %>% unlist,
+                                           kategorie = lbs.long[[i]] %>% select(ma.kategorie) %>% unique %>% unlist)
+}
+long.rating <- long.rating %>% 
+  compact
+names(long.rating) <- map(lbs.long, ~ .x$newvar %>% unique)[5:6]
+
+# zusammenf?hren
+# ft.list <- c(ft.list, long, long.1)
+ft.list <- c(kat, rati, mehr, long.mehrfach, long.rating)
+### Namen in Reihenfolge gem?? FB anbringen
+# ord <- readRDS("../Zuordnung-LS-Gruppen-Fragen.RData")
+# names(ft.list) <- names(ft.list) %>%
+#   str_remove("_.+")
+# x <- names(ft.list)[names(ft.list) %in% ord$variable]
+# for (i in x) {
+#   names(ft.list)[names(ft.list) == i] <- ord[ord$variable == i, "newvar"]
+# }
+
+# Ordnung mit Zahlen nach Prefix als Ordnung anstatt F1, F10, F11 --> F1, F2, F3 ... F11
+ft.list <- ft.list[-which(names(ft.list) %in% c("2024 - D2","2024 - F23","2024 - E1"))]
+ft.list <- ft.list[c(
+  "2024 - D1", # schweirig
+  "2024 - D2 (Teil 1)", # warum schwierig
+  "2024 - D2 (Teil 2)",
+  "2024 - D3", # Bewerbungen
+  "2024 - D6", # Suche wichtig
+  "2024 - F8", # Arbeitszeit
+  "2024 - F9", # Wochenende
+  "2024 - F15", # Bezahlung erhalten
+  "2024 - F16", # Höhe einkommen
+  "2024 - E1 (Teil 1)", # schul. unterstützung
+  "2024 - E1 (Teil 2)",
+  "2024 - F23 (Teil 1)", # Rückblickend
+  "2024 - F23 (Teil 2)"
+  )]
+
+
+
+# order.ft <- ft.list %>%
+#   names %>%
+#   named.to.df.fnc() %>%
+#   mutate(char = str_extract(label,"^[A-Z a-z]"),
+#          num = str_extract(label, "(?<=^[A-Z a-z])\\d+") %>% as.integer,
+#          char = if_else(num %>% is.na, NA, char)) %>%
+#   arrange(char,num) %>%
+#   select(-name)
+# ft.list <- ft.list[order.ft$label]
+
+
+# footnotes f?r Teilstichproben
+ft.list[[which(names(ft.list) == "2024 - D2 (Teil 1)")]] <- ft.list[[which(names(ft.list) == "2024 - D2 (Teil 1)")]] %>%
+  footnote(i = 4, j = 8, value = as_paragraph("Die Frage richtet sich nur an Personen, für die es schwierig war, eine Praktikumsstelle zu finden (n=1.177)."), part = "header") %>%
+  fontsize(size = 9, part = "footer")
+ft.list[[which(names(ft.list) == "2024 - D2 (Teil 2)")]] <- ft.list[[which(names(ft.list) == "2024 - D2 (Teil 2)")]] %>%
+  footnote(i = 4, j = 8, value = as_paragraph("Die Frage richtet sich nur an Personen, für die es schwierig war, eine Praktikumsstelle zu finden (n=1.177)."), part = "header") %>%
+  fontsize(size = 9, part = "footer")
+
+ft.list[[which(names(ft.list) == "2024 - F16")]] <- ft.list[[which(names(ft.list) == "2024 - F16")]] %>%
+  footnote(i = 4, j = 11, value = as_paragraph("Die Frage richtet sich nur an Personen mit einer Wochenarbeitszeit von über 35 Stunden. Es wurde keine Inflationsbereinigung durchgeführt."), part = "header") %>% 
+  fontsize(size = 9, part = "footer")
+
+saveRDS(tbl.list, file = "Vergleich-Zeit/tb-vergleich-tbl-list-pp3.RData") # Vergleich-Zeit/
+saveRDS(ft.list, file = "Vergleich-Zeit/tb-vergleich-ft-list-pp3.RData") # Vergleich-Zeit/
+
+## Erzeugen
+## Word mit Tabellen erstellen
+
+doc <- read_docx("Tabellenband_template.docx")
+
+for (i in 1:length(ft.list)) {
+  doc <- body_add_flextable(doc, value = ft.list[[i]])
+  # Add a page break after each flextable (except the last one)
+  if (i < length(ft.list)) {
+    doc <- body_add_break(doc, pos = "after")
+  }
+}
+print(doc, target = "Vergleich-Zeit/Tabellenband-Vergleich-Zeit-pp3.docx") # Vergleich-Zeit/
+system("open Vergleich-Zeit/Tabellenband-Vergleich-Zeit-pp3.docx")
+
+
+# library(doconv)
+# docx2pdf(input = "Tabellenband_vorlaeufig.docx",
+#          output = "Tabellenband_vorlaeufig.pdf")
+

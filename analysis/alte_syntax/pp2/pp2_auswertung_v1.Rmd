@@ -1,0 +1,765 @@
+---
+title: "Pflichtpraktikum Auswertung"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Functions Tabelleband importieren
+```{r}
+# source("C:/Users/Martin/Österreichisches Institut für Berufsbildungsforschung/onedrive - data/1_Projekte/21_09_ bmbwf Verläufe bafep/auswertung/functions_tabellenband_v15.R", encoding = "latin1")
+source("functions_tabellenband.R", encoding = "latin1")
+```
+
+
+# Libraries laden 
+```{r}
+library(tidyverse)
+library(haven)
+library(psych)
+library(sjlabelled)
+library(lubridate)
+library(factoextra)
+library(ggplot2)
+```
+
+# Datensatz laden
+```{r}
+pp_origin <- read_sav("../datensatz/pp_daten_final_gewichtet.sav")
+pp_origin <- forcats::as_factor(pp_origin)
+
+## Teile Datensatz in jene, die Praktikum absolviert haben und jene mit Dispens
+
+pp <- pp_origin %>% filter(q6 != "wurde mir komplett erlassen (Dispens).")
+pp_dispens <- pp_origin %>% filter(q6 == "wurde mir komplett erlassen (Dispens).")
+```
+
+# PP Dispens - Variablen vorbereiten
+```{r}
+pp_dispens <- pp_dispens %>% mutate(q8 = fct_recode(q8, "Ja" = "other"), 
+                                    q10_1_kat = cut(q10_1, breaks = c(-1, 3, 5, 10, 20, 200), 
+                                                    labels = c("bis 3 Bewerbungen", "4-5", "6-10", "11-20", "mehr als 20 Bewerbungen")), 
+                                    q10_anteil_antworten = (q10_2 / q10_1) * 100, 
+                                    q10_corona_absage = (q11 / q10_2) * 100)
+
+## MC - q9
+pp_dispens <- pp_dispens %>% mutate(q9_other2 = if_else(q9_other != "", "Ja", NA_character_), 
+                      q9_other2 = factor(q9_other2, levels = c("Nicht Gewählt", "Ja")))
+pp_dispens <- pp_dispens %>% mutate(across(c(q9_1:q9_7), ~fct_drop(.x, only = "other")))
+pp_dispens <- pp_dispens %>% mutate(across(c(q9_1:q9_7, q9_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+#pp_dispens <- pp_dispens %>% mutate(across(c(q9_1:q9_7, q9_other2), ~fct_relevel(.x, "Nicht Gewählt")))
+pp_dispens <- pp_dispens %>% mutate(across(c(q9_1:q9_7, q9_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp_dispens <- pp_dispens %>% rowwise() %>% mutate(q9_total = sum(c_across(c(q9_1_n:q9_7_n, q9_other2_n)))) %>% ungroup()
+pp_dispens <- pp_dispens %>% mutate(across(c(q9_1:q9_7, q9_other2), ~as_character(.x)))
+pp_dispens <- pp_dispens %>% mutate(across(c(q9_1:q9_7, q9_other2), ~if_else(q9_total == 0, NA_character_ , .x)))
+
+pp_dispens <- copy_labels(pp_dispens, pp_origin)
+
+```
+
+# PP - Variablen vorbereiten
+```{r}
+pp_origin <- pp_origin %>% mutate(q59_sozialer_hintergrund = fct_collapse(q59, 
+                                                            "niedrig" = "Pflichtschule (Hauptschule, Neue Mittelschule, Poly, PTS etc.)", 
+                                                            "mittel" = c("Lehre, Berufsschule", "Berufsbildende mittlere Schule (Fachschule, Handelsschule, Sozialbetreuung, Gesundheits- und Krankenpflege etc.)"), 
+                                                            "gehoben" = c("Matura (Gymnasium, HTL, HAK, HBLA, BAKIP/BAfEP), Berufsreifeprüfung", "Meisterprüfung, Werkmeister"), 
+                                                            "hoch" = c("Universität, Fachhochschule, Pädagogische Hochschule, Akademie")))
+
+## Variablen Vorbereiten
+pp <- pp %>% mutate(q1_schulform = fct_collapse(q1, 
+                                             "Kaufmännisch" = c("Handelsakademie (HAK)", "Handelsschule (HAS)"), 
+                                             "Technisch-(kunst)gewerblich" = c("HÃ¶here technische und gewerbliche (einschlieÃŸlich kunstgewerblicher) Lehranstalten (HTL)", "Gewerbliche, technische und kunstgew. Fachschulen"), 
+                                             "Wirtschaftlich" = c("HÃ¶here Lehranstalten für wirtschaftliche Berufe (HLW)", "Fachschule für wirtschaftliche Berufe"), 
+                                             "Touristisch" = c("HÃ¶here Lehranstalt für Tourismus (HLT)", "Hotelfachschule, Tourismusfachschule")),
+                    q1_schultyp = fct_collapse(q1, 
+                                             "BMS" = c("Handelsschule (HAS)", "Gewerbliche, technische und kunstgew. Fachschulen", "Fachschule für wirtschaftliche Berufe", "Hotelfachschule, Tourismusfachschule"), 
+                                             "BHS" = c("Handelsakademie (HAK)", "HÃ¶here technische und gewerbliche (einschlieÃŸlich kunstgewerblicher) Lehranstalten (HTL)", "HÃ¶here Lehranstalten für wirtschaftliche Berufe (HLW)", "HÃ¶here Lehranstalt für Tourismus (HLT)")),
+                    q14_anz_bew = if_else(q14_1 > 300, NA_real_, q14_1), 
+                    q14_anz_bew_kat = cut(q14_anz_bew, breaks = c(-1, 0, 1, 3, 5, 10, 15, 20, 30, 50, 100, 301), 
+                                            labels = c("Keine Bewerbung", "1 Bewerbung", "2-3 Bewerbungen", "4-5 Bewerbungen", "6-10 Bewerbungen", "11-15 Bewerbungen", "16-20 Bewerbungen", "21-30 Bewerbungen", "31-50 Bewerbungen", "51-100 Bewerbungen", "Mehr als 100 Bewerbungen")), 
+                    
+                    
+                    
+                    q14_anz_bew_kat2 = cut(q14_anz_bew, breaks = c(-1, 1, 3, 5, 10, 20, 200), 
+                                                    labels = c("bis 1 Bewerbung", "2-3 Bewerbungen", "4-5 Bewerbungen", "6-10 Bewerbungen", "11-20 Bewerbungen", "mehr als 20 Bewerbungen")),
+                    q14_anteil_antworten = (q14_2 / q14_1) * 100, 
+                    q14_corona_absagegrund = (q14a / q14_2) * 100,
+                    q31_ueberstunden = cut(q31, breaks = c(-1, 20, 35, 40, 61), labels = c("bis 20 Stunden", "21-35 Stunden", "36-40 Stunden", "Mehr als 40 Stunden")),
+                    q58_notendurchschnitt = (as.numeric(q58_1) + as.numeric(q58_2) + as.numeric(q58_3))/3,
+                    q58_notendurchschnitt = cut(q58_notendurchschnitt, breaks = c(-1, 2, 3, 4, 5, 6.01), labels = c("Sehr gut", "Gut", "Befriedigend", "Genügend", "Nicht Genügend")),
+                    q59_sozialer_hintergrund = fct_collapse(q59, 
+                                                            "niedrig" = "Pflichtschule (Hauptschule, Neue Mittelschule, Poly, PTS etc.)", 
+                                                            "mittel" = c("Lehre, Berufsschule", "Berufsbildende mittlere Schule (Fachschule, Handelsschule, Sozialbetreuung, Gesundheits- und Krankenpflege etc.)"), 
+                                                            "gehoben" = c("Matura (Gymnasium, HTL, HAK, HBLA, BAKIP/BAfEP), Berufsreifeprüfung", "Meisterprüfung, Werkmeister"), 
+                                                            "hoch" = c("Universität, Fachhochschule, Pädagogische Hochschule, Akademie"))) 
+                      
+## Einkommen bereinigen
+pp <- pp %>% mutate(q37_einkommen = if_else(q37_1 > 5000, NA_real_, q37_1),
+                      q37_einkommen = if_else(q37a == "Nein", 0, q37_einkommen),
+                      q37_taschengeld = if_else(q37_2 > 2000, NA_real_, q37_2),
+                      q37_taschengeld = if_else(q37a == "Nein", 0, q37_taschengeld),
+                      q37_trinkgeld = if_else(q37_3 > 2000, NA_real_, q37_3),
+                      q37_trinkgeld = if_else(q37a == "Nein", 0, q37_trinkgeld), 
+                      q37_einkommen = if_else(!is.na(q37_taschengeld) & is.na(q37_einkommen), 0, q37_einkommen), 
+                      q37_taschengeld = if_else(!is.na(q37_einkommen) & is.na(q37_taschengeld), 0, q37_taschengeld), 
+                      q37_trinkgeld = if_else(is.na(q37_trinkgeld), 0, q37_trinkgeld), 
+                      q37_trinkgeld = if_else(is.na(q37_einkommen) & is.na(q37_taschengeld) & is.na(q37_3), NA_real_, q37_trinkgeld), 
+                      q37_eink_gesamt = q37_einkommen + q37_taschengeld, 
+                      q37_einkommen_kat = cut(q37_einkommen, breaks = c(-1, 0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000, 5001), labels = c("Kein Einkommen", "1-250 Euro","251-500 Euro", "501-750 Euro", "751-1000 Euro", "1001-1250 Euro", "1251-1500 Euro", "1501-1750 Euro", "1751-2000 Euro", "Mehr als 2000 Euro")),
+                      q37_taschengeld_kat = cut(q37_taschengeld, breaks = c(-1, 0, 250, 500, 750, 1000, 2001), 
+                                                labels = c("Kein Taschengeld", "1-250 Euro", "251-500 Euro", "501-750 Euro", "751-1000 Euro", "Mehr als 1000 Euro")),
+                      q37_trinkgeld_kat = cut(q37_trinkgeld, breaks = c(-1, 0, 250, 500, 750, 1000, 2001), labels = c("Kein Trinkgeld", "1-250 Euro", "251-500 Euro", "501-750 Euro", "751-1000 Euro", "Mehr als 1000 Euro")),
+                      q37_einkommen_gesamt_kat = cut(q37_eink_gesamt, breaks = c(-1, 0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000, 5001), labels = c("Kein Einkommen", "1-250 Euro","251-500 Euro", "501-750 Euro", "751-1000 Euro", "1001-1250 Euro", "1251-1500 Euro", "1501-1750 Euro", "1751-2000 Euro", "Mehr als 2000 Euro")), 
+                      q37_einkommen_systematik = if_else(q37_einkommen > 0 & q37_taschengeld > 0 & q37_trinkgeld > 0, "Einkommen + Taschengeld + Trinkgeld", 
+                                                         if_else(q37_einkommen > 0 & q37_taschengeld > 0 & q37_trinkgeld == 0, "Einkommen + Taschengeld", 
+                                                                 if_else(q37_einkommen > 0 & q37_taschengeld == 0 & q37_trinkgeld > 0, "Einkommen + Trinkgeld", 
+                                                                         if_else(q37_einkommen == 0 & q37_taschengeld > 0 & q37_trinkgeld > 0, "Taschengeld + Trinkgeld", 
+                                                                                 if_else(q37_einkommen > 0 & q37_taschengeld == 0 & q37_trinkgeld == 0, "Einkommen", 
+                                                                                         if_else(q37_einkommen == 0 & q37_taschengeld > 0 & q37_trinkgeld == 0, "Taschengeld", 
+                                                                                                 if_else(q37_einkommen == 0 & q37_taschengeld == 0 & q37_trinkgeld > 0, "Trinkgeld", 
+                                                                                                         if_else(q37_einkommen == 0 & q37_taschengeld == 0 & q37_trinkgeld == 0, "Keines", "Sonstiges")))))))), 
+                      q37_einkommen_systematik = factor(q37_einkommen_systematik, levels = c("Einkommen", "Einkommen + Trinkgeld", "Einkommen + Taschengeld", "Einkommen + Taschengeld + Trinkgeld", "Taschengeld", "Taschengeld + Trinkgeld", "Trinkgeld", "Keines
+")),
+q37_einkommen_systematik2 = if_else(q37_einkommen == 0 & q37_taschengeld == 0, "Kein Einkommen", 
+                                    if_else(q37_einkommen > 0 & q37_taschengeld == 0, "Einkommen", 
+                                            if_else(q37_einkommen == 0 & q37_taschengeld > 1, "Taschengeld", 
+                                                    if_else(q37_einkommen > 0 & q37_taschengeld > 0, "Einkommen + Taschengeld", "Sonstiges"))))
+)
+
+# Kosten berechnen
+pp <- pp %>% mutate(q39_unterkunftskosten = if_else(is.na(q39_1), 0, q39_1),
+                      q39_unterkunftskosten = if_else(q39_unterkunftskosten >= 1000, NA_real_, q39_unterkunftskosten),
+                      q39_fahrtkosten = if_else(q39_2 >= 500, NA_real_, q39_2), 
+                      q39_essenskosten = if_else(q39_3 >= 500, NA_real_, q39_3),
+                      q39_unterkunftskosten = if_else(is.na(q37_einkommen) & is.na(q37_taschengeld) & is.na(q37_trinkgeld), NA_real_, q39_unterkunftskosten),
+                      q39_fahrtkosten = if_else(is.na(q37_einkommen) & is.na(q37_taschengeld) & is.na(q37_trinkgeld), NA_real_, q39_fahrtkosten),
+                      q39_essenskosten = if_else(is.na(q37_einkommen) & is.na(q37_taschengeld) & is.na(q37_trinkgeld), NA_real_, q39_essenskosten),
+                      across(c(q39_unterkunftskosten, q39_fahrtkosten, q39_essenskosten), ~if_else(.x < 0, NA_real_, .x)), 
+                      q39_arbeitskosten = if_else(q39a == "Nein", 0, q39aa),
+                      q39_kosten_gesamt = q39_unterkunftskosten + q39_fahrtkosten + q39_essenskosten,
+                      q39_essenskosten_kat = cut(q39_essenskosten, breaks = c(-1, 0, 50, 100, 200, 500), labels = c("Keine Kosten", "1-50 Euro", "51-100 Euro", "101-200 Euro", "Mehr als 200 Euro")),
+                      q39_fahrtkosten_kat = cut(q39_fahrtkosten,  breaks = c(-1, 0, 50, 100, 200, 500), labels = c("Keine Kosten", "1-50 Euro", "51-100 Euro", "101-200 Euro", "Mehr als 200 Euro")),
+                      q39_arbeitskosten_kat = cut(q39_arbeitskosten, breaks = c(-1, 0, 50, 100, 200, 500), labels = c("Keine Kosten", "1-50 Euro", "51-100 Euro", "101-200 Euro", "Mehr als 200 Euro")),
+                      q39_kosten_gesamt_kat = cut(q39_kosten_gesamt, breaks = c(-1, 0, 250, 500, 750, 1001), labels = c("Keine Kosten", "1-250 Euro", "251-500 Euro", "501-750 Euro", "751-1000 Euro")),
+                      einkommen_kosten = q37_eink_gesamt - q39_kosten_gesamt)
+                      
+## Variablen vorbereiten
+pp %>% count(q59_sozialer_hintergrund) %>% View()
+
+
+# Multiple Choice Items rekodieren.
+## q13 
+pp <- pp %>% mutate(q13_other2 = if_else(q13_other != "", "Ja", NA_character_), 
+                      q13_other2 = factor(q13_other2, levels = c("Nicht Gewählt", "Ja")))
+pp <- pp %>% mutate(across(c(q13_1:q13_7), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q13_1:q13_7, q13_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q13_1:q13_7, q13_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q13_total = sum(c_across(c(q13_1_n:q13_7_n, q13_other2_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q13_1:q13_7, q13_other2), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q13_1:q13_7, q13_other2), ~if_else(q13_total == 0 | (q12 == "Sehr leicht" | q12 == "Leicht"), NA_character_ , .x)))
+
+## q17
+pp <- pp %>% mutate(across(c(q17_1:q17_3), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q17_1:q17_3), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q17_1:q17_3), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q17_total = sum(c_across(c(q17_1_n:q17_3_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q17_1:q17_3), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q17_1:q17_3), ~if_else(q17_total == 0, NA_character_ , .x)))
+
+## q19
+pp <- pp %>% mutate(q19_other2 = if_else(q19_other != "", "Ja", NA_character_), 
+                      q19_other2 = factor(q19_other2, levels = c("Nicht Gewählt", "Ja")))
+pp <- pp %>% mutate(across(c(q19_1:q19_9), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q19_1:q19_9, q19_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q19_1:q19_9, q19_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q19_total = sum(c_across(c(q19_1_n:q19_9_n, q19_other2_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q19_1:q19_9, q19_other2), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q19_1:q19_9, q19_other2), ~if_else(q19_total == 0, NA_character_ , .x)))
+
+## q35
+pp <- pp %>% mutate(q35_other2 = if_else(q35_other != "", "Ja", NA_character_), 
+                      q35_other2 = factor(q35_other2, levels = c("Nicht Gewählt", "Ja")))
+pp <- pp %>% mutate(across(c(q35_1:q35_9), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q35_1:q35_9, q35_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q35_1:q35_9, q35_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q35_total = sum(c_across(c(q35_1_n:q35_9_n, q35_other2_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q35_1:q35_9, q35_other2), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q35_1:q35_9, q35_other2), ~if_else(q35_total == 0, NA_character_ , .x)))
+
+## q44
+pp <- pp %>% mutate(q44_other2 = if_else(q44_other != "", "Ja", NA_character_), 
+                      q44_other2 = factor(q44_other2, levels = c("Nicht Gewählt", "Ja")))
+pp <- pp %>% mutate(across(c(q44_1:q44_5), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q44_1:q44_5, q44_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q44_1:q44_5, q44_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q44_total = sum(c_across(c(q44_1_n:q44_5_n, q44_other2_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q44_1:q44_5, q44_other2), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q44_1:q44_5, q44_other2), ~if_else(q44_total == 0, NA_character_ , .x)))
+
+## q45
+pp <- pp %>% mutate(q45_other2 = if_else(q45_other != "", "Ja", NA_character_), 
+                      q45_other2 = factor(q45_other2, levels = c("Nicht Gewählt", "Ja")))
+pp <- pp %>% mutate(across(c(q45_1:q45_7), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q45_1:q45_7, q45_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q45_1:q45_7, q45_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q45_total = sum(c_across(c(q45_1_n:q45_7_n, q45_other2_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q45_1:q45_7, q45_other2), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q45_1:q45_7, q45_other2), ~if_else(q45_total == 0, NA_character_ , .x)))
+
+## q48
+pp <- pp %>% mutate(q48_other2 = if_else(q48_other != "", "Ja", NA_character_), 
+                      q48_other2 = factor(q48_other2, levels = c("Nicht Gewählt", "Ja")))
+pp <- pp %>% mutate(across(c(q48_1:q48_6), ~fct_drop(.x, only = "other")))
+pp <- pp %>% mutate(across(c(q48_1:q48_6, q48_other2), ~fct_explicit_na(.x, "Nicht Gewählt")))
+pp <- pp %>% mutate(across(c(q48_1:q48_6, q48_other2), ~as.numeric(.x)-1, .names = "{.col}_n"))
+pp <- pp %>% rowwise() %>% mutate(q48_total = sum(c_across(c(q48_1_n:q48_6_n, q48_other2_n)))) %>% ungroup()
+pp <- pp %>% mutate(across(c(q48_1:q48_6, q48_other2), ~as_character(.x)))
+pp <- pp %>% mutate(across(c(q48_1:q48_6, q48_other2), ~if_else(q48_total == 0 | (q47 == "wurde nicht durchgeführt und ist auch nicht geplant." | q47 == "WeiÃŸ ich nicht"), NA_character_ , .x)))
+
+
+## Rating Variables to numeric
+pp <- pp %>% mutate(across(c(q18_1:q18_3, q41_1:q41_5, q42_1:q42_10, q43_1:q43_11, q49_1:q49_4, q50_1:q50_7), 
+                           ~as_numeric(.x), .names = "{.col}_n"))
+
+## Other gesammelt recodieren
+pp <- pp %>% mutate(across(.cols = c(q20), .fns = ~fct_recode(.x, "Anderes" = "other")))
+
+## Set Attributes
+attr(pp$q1_schulform, "label") <- "Richtung der Schulform"
+attr(pp$q1_schultyp, "label") <- "Schultyp"
+attr(pp$q14_anz_bew_kat, "label") <- "Anzahl Bewerbungen"
+attr(pp$q14_anz_bew_kat2, "label") <- "Anzahl Bewerbungen"
+attr(pp$q14_anteil_antworten, "label") <- "[Anteil der Rückmeldungen] Bewerbungen"
+attr(pp$q14_corona_absagegrund, "label") <- "[Anteil der coranbedingten Absagen bei Rückmeldungen] Bewerbungen"
+attr(pp$q31_ueberstunden, "label") <- "Arbeitsstunden pro Woche (Durchschnitt)"
+attr(pp$q59_sozialer_hintergrund, "label") <- "HÃ¶chster Bildungsabschluss eines Elternteils"
+attr(pp$q37_einkommen_kat, "label") <- "Einkommen"
+attr(pp$q37_taschengeld_kat, "label") <- "Taschengeld"
+attr(pp$q37_trinkgeld_kat, "label") <- "Trinkgeld"
+attr(pp$q37_eink_gesamt, "label") <- "Einkommen gesamt (Einkommen, Taschengeld, Trinkgeld)"
+attr(pp$q37_einkommen_systematik, "label") <- "Einkommensquellen"
+attr(pp$q37_eink_gesamt, "label") <- "Einkommen gesamt (Einkommen, Taschengeld, Trinkgeld)"
+attr(pp$q39_kosten_gesamt_kat, "label") <- "Gesamtkosten"
+attr(pp$q58_notendurchschnitt, "label") <- "Notendurchschnitt (DEU, EN, Mathe)"
+
+attr(pp$q13_other2, "label") <- "[Sonstiges] Warum war es aus Ihrer Sicht schwierig eine Stelle zu finden?"
+attr(pp$q19_other2, "label") <- "[Sonstiges] Was war Ihnen bei der Suche nach dem Pflichtpraktikum besonders wichtig?"
+attr(pp$q35_other2, "label") <- "[Sonstiges] Von wem wurden Sie informiert?"
+attr(pp$q44_other2, "label") <- "[Sonstiges] Welche Nachweise über das Pflichtpraktikum verlangt die Schule?"
+attr(pp$q45_other2, "label") <- "[Sonstiges] In welcher Form mussten die Erfahrungen des Pflichtpraktikums festgehalten werden?"
+attr(pp$q48_other2, "label") <- "[Sonstiges] In welcher Form wurde/wird das Pflichtpraktikum nachbesprochen?"
+
+
+
+## copy Labels from origin to new
+pp <- copy_labels(pp, pp_origin)
+```
+
+# Factorenanalyse
+```{r}
+fact_data <- pp %>% select(q42_1_n:q42_10_n)
+
+KMO(r=cor(na.omit(fact_data)))
+cortest.bartlett(fact_data)
+
+
+# fafitfree <- fa(fact_data, nfactors = ncol(fact_data), rotate = "none")
+# n_factors <- length(fafitfree$e.values)
+# scree     <- data.frame(
+#   Factor_n =  as.factor(1:n_factors), 
+#   Eigenvalue = fafitfree$e.values)
+# ggplot(scree, aes(x = Factor_n, y = Eigenvalue, group = 1)) + 
+#   geom_point() + geom_line() +
+#   xlab("Number of factors") +
+#   ylab("Initial eigenvalue") +
+#   labs( title = "Scree Plot", 
+#         subtitle = "(Based on the unreduced correlation matrix)")
+
+# fa.parallel(fact_data)
+
+# Factorenanalyse durchführen
+
+fa_res <- fa(fact_data, nfactors = 3, rotate = "oblimin")
+
+## Indikatoren erstellen
+pp <- pp %>% mutate(ind_qual_arbeitsklima = rowMeans(across(c(q42_1_n, q42_2_n))), 
+                      ind_qual_rahmenbed = rowMeans(across(c(q42_3_n, q42_4_n, q42_5_n))),
+                      ind_qual_aufgaben = rowMeans(across(c(q42_7_n, q42_8_n, q42_9_n, q42_10_n))),
+                      ind_qual_bezahlung = q42_6_n)
+
+```
+
+
+
+# Clusteranalyse
+```{r}
+## Syntax für K-Means Clusteranalyse: Herausforderungen: Missing Values, das ist der mÃ¶gliche Weg dazu, über Reihennummer.
+clust_data <- pp %>% select(q42_1_n:q42_10_n) %>% as.data.frame
+fviz_nbclust(na.omit(clust_data), kmeans, method = "silhouette")
+fviz_nbclust(na.omit(clust_data), kmeans, method = "wss")
+
+row.names(clust_data) <- paste("r", 1:dim(clust_data)[1], sep="")
+kc <- kmeans(x = na.omit(clust_data), 4)$cluster
+kc
+clust_data <- cbind(clust_data, 'cluster_qualitaet' = NA)
+clust_data[names(kc),][,11] <- kc
+
+pp$cluster_qualitaet <- factor(clust_data$cluster_qualitaet)
+
+pp %>% 
+  select(cluster_qualitaet,matches("q42.+_n")) %>% 
+  pivot_longer(-cluster_qualitaet) %>%
+  group_by(cluster_qualitaet,name) %>% 
+  reframe(mean = mean(value,na.rm = T)) %>% 
+  na.omit %>% 
+  ggplot(aes(x=name, y=mean, group = cluster_qualitaet)) +
+  geom_line(aes(color = cluster_qualitaet)) +
+    # theme_bw() +
+    theme(text = element_text(size = 14),
+          legend.position="bottom",
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.line = element_line(size = .3),
+          panel.background = element_blank())
+
+pp <- pp %>%
+  mutate(
+    cluster_qualitaet = case_when(
+      cluster_qualitaet == 2 ~ "Gruppe A (gut)",
+      cluster_qualitaet == 3 ~ "Gruppe B (mittel)",
+      cluster_qualitaet == 1 ~ "Gruppe C (schlecht)"
+           ) %>% factor)
+
+pp$cluster_qualitaet %>% frq
+
+
+table_mean_bi(pp, row_vars = cluster_qualitaet, col_vars = c(q42_1_n:q42_10_n), version = "summary") %>% View()
+
+
+
+```
+
+
+# Tabellenband
+## Univariat - PP
+```{r}
+vars_univariat <- pp %>% 
+  select(q1, q1_schulform, q1_schultyp, q4, q12, q13_1:q13_7, q13_other2, q14_anz_bew_kat2, q17_1:q17_3, q18_1:q18_3, q19_1:q19_9, 
+         q19_other2, q20, q22, q22a_1:q22a_13, q23:q30,q31_ueberstunden, q32, q33_1:q33_2, q34, q35_1:q35_9, q35_other2, q36, 
+         q37a, q37_einkommen_kat, q37_taschengeld_kat, q37_trinkgeld_kat, q37_einkommen_gesamt_kat, 
+         q38, q39_kosten_gesamt_kat, q40, q41_1:q41_5, q42_1:q42_10, q43_1:q43_11, q44_1:q44_5, q44_other2, 
+         q45_1:q45_7, q45_other2, q46, q47, q48_1:q48_6, q48_other2, q49_1:q49_4, q50_1:q50_7, 
+         q51:q55, q57a, q58_1:q58_3, q58_notendurchschnitt, q59_sozialer_hintergrund) %>%
+  names()
+
+tab_uni <- tabellenband_univariat(pp, vars_univariat, weighted = T, weight = gewicht) %>% list() %>% set_names("univariat")
+
+#write.xlsx(tab_uni, "pp_univariat.xlsx", overwrite = T, startRow = 1)
+
+#
+```
+
+## Univariat - Dispens
+```{r}
+vars_univariat_dispens <- pp_dispens %>% 
+  select(q1, q4, q6, q7, q8, q8a, q9_1:q9_7, q9_other2, q10_1_kat, q53:q55, q57a, q58_1:q58_3, q59) %>%
+  names()
+
+tab_uni_dispens <- tabellenband_univariat(pp_dispens, vars_univariat_dispens, weighted = F) %>% list() %>% set_names("univariat_dispens")
+```
+
+## Bivariat - PP Origin
+```{r}
+breaks <- pp_origin %>% select(q1, q4) %>% names()
+
+tab_bi_origin <- tabellenband_bivariat(pp_origin, all_of(breaks), col_vars = c(q6), weight = gewicht, weighted = T, show_n_weighted = T)
+
+write.xlsx(tab_bi_origin, "pp_status_tabelle.xlsx", overwrite = T, startRow = 1)
+
+```
+
+
+## Bivariat - PP
+```{r}
+breaks <- pp %>% select(q1, q1_schulform, q1_schultyp, q4, q24, q27, q28, q29, q31_ueberstunden, q36, q40, q51, q53, q55, q57a, q58_notendurchschnitt, q59_sozialer_hintergrund) %>% names()
+
+
+tab_bi <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q1, q1_schulform, q4, q12, q13_1:q13_7, q13_other2, q14_anz_bew_kat2, q17_1:q17_3, q18_1:q18_3, q19_1:q19_9, 
+         q19_other2, q20, q22, q22a_1:q22a_13, q23:q30,q31_ueberstunden, q32, q33_1:q33_2, q34, q35_1:q35_9, q35_other2, q36, 
+         q37a, q37_einkommen_kat, q37_taschengeld_kat, q37_trinkgeld_kat, q37_einkommen_gesamt_kat, 
+         q38, q39_kosten_gesamt_kat, q40, q41_1:q41_5, q42_1:q42_10, q43_1:q43_11, q44_1:q44_5, q44_other2, 
+         q45_1:q45_7, q45_other2, q46, q47, q48_1:q48_6, q48_other2, q49_1:q49_4, q50_1:q50_7, 
+         q51:q55, q57a, q58_1:q58_3, q58_notendurchschnitt), weight = gewicht, weighted = T)
+
+
+#tab_bi <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q1, q1_schulform), weight = "gewicht", n_weighted = T)
+
+
+write.xlsx(c(tab_uni, tab_uni_dispens, tab_bi), "pp_tabellenband.xlsx", overwrite = T, startRow = 1)
+
+```
+
+## Bivariat - PP - Summary
+```{r}
+#andere Breaks wegen Kreuzungen definieren.
+
+breaks2 <- pp %>% select(q1, q1_schulform, q1_schultyp, q4, q36, q40, q51, q53, q55, q57a, q58_notendurchschnitt, q59_sozialer_hintergrund) %>% names()
+
+# q12
+tab1_q1_12 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q12), version = "summary", weighted = T, weight = gewicht)
+
+# q13
+tab1_q13 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q13_1:q13_7, q13_other2), weighted = T, weight = gewicht) %>% list() %>% set_names("q13_schw_stelle")
+
+#q14
+tab1_q14 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q14_anz_bew_kat2), version = "summary", weighted = T, weight = gewicht)
+
+# q17
+tab1_q17 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q17_1:q17_3), weighted = T, weight = gewicht) %>% list() %>% set_names("q17_ort_suche")
+
+#q18
+tab1_q18 <- table_mean_bi(pp, all_of(breaks), col_vars = c(q18_1_n:q18_3_n), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q18_einstellung_prakt")
+
+# q19
+tab1_q19 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q19_1:q19_9, q19_other2), weighted = T, weight = gewicht) %>% list() %>% set_names("q19_motive_praktikum")
+
+# q20-q22a
+tab1_q20_22 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q20, q21, q22), version = "summary", weighted = T, weight = gewicht)
+
+# q22a
+tab1_q22a <- table_mc_bi(pp, all_of(breaks), col_vars = c(q22a_1:q22a_13), weighted = T, weight = gewicht) %>% list() %>% set_names("q22_vorbereitung_schule")
+
+# q23_34
+tab1_q23_34 <- tabellenband_bivariat(pp, all_of(breaks2), col_vars = c(q23:q30, q31_ueberstunden, q33_1:q33_2, q34), version = "summary", weighted = T, weight = gewicht)
+
+# q35
+tab1_q35 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q35_1:q35_9, q35_other2), weighted = T, weight = gewicht) %>% list() %>% set_names("q35_informiert_vonwem")
+
+# q36-39
+tab1_q36_q39 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q36")]), col_vars = c(q36, q37a, q38, q39a, q39b), version = "summary", weighted = T, weight = gewicht) 
+
+# q37
+tab1_q36_q39 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q37_einkommen_kat, q37_trinkgeld_kat, q37_taschengeld_kat, q37_einkommen_gesamt_kat, q37_einkommen_systematik), version = "summary", weighted = T, weight = gewicht)
+
+tab1_q39 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q39_essenskosten_kat, q39_fahrtkosten_kat, q39_arbeitskosten_kat), version = "summary", weighted = T, weight = gewicht)
+
+
+# q40
+tab1_q40 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q40")]), col_vars = c(q39b, q40), version = "summary", weighted = T, weight = gewicht)
+
+
+# q41
+tab1_q41 <- table_mean_bi(pp, all_of(breaks), col_vars = c(q41_1_n:q41_5_n), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q41_betreuung_betrieb")
+
+# q42
+tab1_q42 <- table_mean_bi(pp, all_of(breaks), col_vars = c(q42_1_n:q42_9_n), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q42_arbeitsbed")
+
+# q43
+tab1_q43 <- table_mean_bi(pp, all_of(breaks), col_vars = c(q43_1_n:q43_11_n), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q43_lernbed")
+
+# q44
+tab1_q44 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q44_1:q44_5, q44_other2), weighted = T, weight = gewicht) %>% list() %>% set_names("q44_nachweise")
+
+# q45
+tab1_q45 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q45_1:q45_7, q45_other2), weighted = T, weight = gewicht) %>% list() %>% set_names("q45_dokumentation")
+
+# q46_47
+tab1_q46_47 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q46, q47), version = "summary", weighted = T, weight = gewicht)
+
+# q48
+tab1_q48 <- table_mc_bi(pp, all_of(breaks), col_vars = c(q48_1:q48_6, q48_other2), weighted = T, weight = gewicht) %>% list() %>% set_names("q48_nachbesprechung")
+
+# q49 
+tab1_q49 <- table_mean_bi(pp, all_of(breaks), col_vars = c(q49_1_n:q49_4_n), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q49_arbeitsmarkt")
+
+# q50 
+tab1_q50 <- table_mean_bi(pp, all_of(breaks), col_vars = c(q50_1_n:q50_7_n), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q50_bewertung_praktikum")
+
+# q51
+tab1_q51 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q51")]), col_vars = c(q51), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q51")
+
+
+# q52
+tab1_q52 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q52")]), col_vars = c(q52), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q52")
+
+
+# q53
+tab1_q53 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q53")]), col_vars = c(q53), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q53")
+
+
+# q54
+tab1_q54 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q54")]), col_vars = c(q54), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q54")
+
+
+# q55
+tab1_q55 <- tabellenband_bivariat(pp, all_of(breaks[!breaks %in% c("q55")]), col_vars = c(q55), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q55")
+
+
+# q35
+tab1_q35 <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(q35b, q35c), version = "summary", weighted = T, weight = gewicht)
+
+
+
+obj <- Filter(function(x) inherits(get(x), c("list")), ls())
+obj <- obj[str_detect(obj, "tab1_")]
+
+list_export <- c()
+
+for (i in 1:length(obj)) {
+  list_export <- c(list_export, get(obj[i]))
+  print(obj[i])
+}
+
+write.xlsx(list_export, "pp_tabellenband_summary.xlsx", overwrite = T, startRow = 1)
+
+
+```
+
+## Sonstige Antworten
+```{r}
+## Offene Fragen
+tab2_q8_other <- pp %>% count(q8_other) %>% list() %>% set_names("q8_other")
+tab2_q9_other <- pp %>% count(q9_other) %>% list() %>% set_names("q9_other")
+tab2_q13_other <- pp %>% count(q13_other) %>% list() %>% set_names("q13_other")
+tab2_q19_other <- pp %>% count(q19_other) %>% list() %>% set_names("q19_other")
+tab2_q20_other <- pp %>% count(q20_other) %>% list() %>% set_names("q20_other")
+tab2_q35_other <- pp %>% count(q35_other) %>% list() %>% set_names("q35_other")
+tab2_q35a <- pp %>% count(q35a) %>% list() %>% set_names("q35a")
+tab2_q44_other <- pp %>% count(q44_other) %>% list() %>% set_names("q44_other")
+tab2_q45_other <- pp %>% count(q45_other) %>% list() %>% set_names("q45_other")
+tab2_q48_other <- pp %>% count(q48_other) %>% list() %>% set_names("q48_other")
+tab2_q57_other <- pp %>% count(q57_other) %>% list() %>% set_names("q57_other")
+tab2_q8_other <- pp %>% count(q8_other) %>% list() %>% set_names("q8_other")
+tab2_q8_other <- pp %>% count(q8_other) %>% list() %>% set_names("q8_other")
+
+
+
+
+obj <- Filter(function(x) inherits(get(x), c("list")), ls())
+obj <- obj[str_detect(obj, "tab2_")]
+
+list_export <- c()
+
+for (i in 1:length(obj)) {
+  list_export <- c(list_export, get(obj[i]))
+  print(obj[i])
+}
+
+write.xlsx(list_export, "pp_sonstige_antworten.xlsx", overwrite = T, startRow = 1)
+```
+
+
+# Individuelle Auswertungen und Zusammenhänge
+## PP Dispens
+```{r}
+pp_dispens %>% summarise(mean(q10_anteil_antworten, na.rm = T))
+pp_dispens %>% summarise(mean(q10_corona_absage, na.rm = T))
+```
+
+## PP 
+```{r}
+## Soziodemografische Struktur
+tab3_q1 <- tabellenband_bivariat(pp_origin, c(q55, q57a, q59_sozialer_hintergrund), col_vars = c(q1), weighted = T, weight = gewicht, perc = "col") %>% set_names("q1_original")
+
+
+
+tabellenband_bivariat(pp, q12, col_vars = c(q14_anz_bew_kat2), version = "summary", weighted = T, weight = gewicht)[[1]] %>% View()
+cor.test(as.numeric(pp$q12), pp$q14_anz_bew)
+
+# Berechnugn des zeitlichen Abstandes
+pp$q15_diff_suche_zusage <- interval(pp$q15, pp$q15a)
+pp$q15_diff_suche_zusage <- pp$q15_diff_suche_zusage %/% months(1)
+
+pp$q15_diff_suche_antritt <- interval(pp$q15, pp$q16)
+pp$q15_diff_suche_antritt <- pp$q15_diff_suche_antritt %/% months(1)
+
+# Jahr der Durchführung des Pflichtpraktikums
+pp$jahr_praktikum <- year(pp$q16)
+pp <- pp %>% mutate(jahr_praktikum = if_else(jahr_praktikum > 2021 | jahr_praktikum <= 2016, NA_real_, jahr_praktikum), jahr_praktikum = as.factor(jahr_praktikum))
+
+#pp$jahr_praktikum_monate <- month(pp$q16, label = T)
+pp <- pp %>% mutate(q16_rec = if_else(year(q16) > 2021 | year(q16) <= 2016, NA_POSIXct_, q16), 
+                    jahr_praktikum_monate = month(q16_rec, label = T))
+
+
+
+tab3_jahr_praktikum <- tabellenband_bivariat(pp, all_of(breaks), col_vars = c(jahr_praktikum, jahr_praktikum_monate), version = "summary", weighted = T, weight = gewicht)
+
+
+# Berechnung des Absagenanteils
+tab3_absagen <- table_mean_bi(pp, c(q1, q1_schulform, q1_schultyp, q14_anz_bew_kat2), col_vars = c(q14_anteil_antworten), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q14_rueckmeldungen")
+
+tab3_corona_absagen <- table_mean_bi(pp %>% filter(jahr_praktikum == "2020" | jahr_praktikum == "2021"), c(q1, q1_schulform, q1_schultyp, q14_anz_bew_kat2), col_vars = c(q14_corona_absagegrund), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q14_absagen_coronabedingt")
+
+# Anstrenungen vs. Anzahl an Bewerbungen
+table_mean_bi(pp, c(q14_anz_bew_kat2), col_vars = c(q18_1_n), version = "summary", weighted = T, weight = gewicht)
+
+table_mean_bi(pp, c(q12), col_vars = c(q18_3_n), version = "summary", weighted = T, weight = gewicht)
+cor.test(as.numeric(pp$q12), pp$q18_3_n)
+
+# Stundenanzahl vs. Zeitpunkt des Praktikums
+tabellenband_bivariat(pp, q30, col_vars = c(q31_ueberstunden), version = "summary", weighted = T, weight = gewicht)[[1]] %>% View()
+
+# vertragliche Unklarheiten
+tabellenband_bivariat(pp, c(q33_1, q33_2, q34, q31_ueberstunden), q36, version = "summary", weighted = T, weight = gewicht)[[1]] %>% View()
+
+# Einkommen
+
+q37_einkommen_median <- pp %>% filter(q37_einkommen > 0) %>% group_by(q1) %>% 
+  summarise(across(c(q37_einkommen, q37_taschengeld, q37_trinkgeld, q37_eink_gesamt), ~median(.x, na.rm = T)))
+
+pp %>% filter(q37_einkommen > 0) %>% 
+  summarise(across(c(q37_einkommen, q37_taschengeld, q37_trinkgeld, q37_eink_gesamt), ~median(.x, na.rm = T)))
+
+q37_einkommen_median_n <- pp %>% filter(q37_einkommen > 0) %>% group_by(q1) %>% 
+  summarise(across(c(q37_einkommen, q37_taschengeld, q37_trinkgeld, q37_eink_gesamt), ~sum(!is.na(.x)), .names = "{.col}_n"))
+
+tab3_q37_einkommen_median <- q37_einkommen_median %>% left_join(q37_einkommen_median_n) %>% list() %>% set_names("q37_einkommen_median")
+
+tab3_einkommen_sytematik <- tabellenband_bivariat(pp, c(q1), q37_einkommen_systematik2, version = "summary", weighted = T, weight = gewicht)
+
+tabellenband_bivariat(pp, c(q1), q37_einkommen_systematik2, weighted = F, weight = gewicht)
+
+# Kosten
+q39_unterkunftskosten_median <- pp %>% filter(q39_unterkunftskosten > 0) %>% group_by(q1) %>% 
+  summarise(across(c(q39_unterkunftskosten), ~median(.x, na.rm = T)))
+q39_unterkunftskosten_median_n <- pp %>% filter(q39_unterkunftskosten > 0) %>% group_by(q1) %>% 
+  summarise(across(c(q39_unterkunftskosten), ~sum(!is.na(.x)), .names = "{.col}_n"))
+
+tab3_q39_unterkunftskosten_median <- q39_unterkunftskosten_median %>% left_join(q39_unterkunftskosten_median_n) %>% list() %>% set_names("q39_unterkunftskosten_median")
+
+pp %>% filter(q39bb > 0) %>% 
+  summarise(across(c(q39bb), ~median(.x, na.rm = T)))
+
+# Ãœbernahme
+tabellenband_bivariat(pp %>% filter(q53 == "Ich werde mir einen Arbeitsplatz suchen."), c(q1), q37_einkommen_systematik2, weighted = F, weight = gewicht)
+
+tab3_q52 <- tabellenband_bivariat(pp %>% filter(q53 == "Ich werde mir einen Arbeitsplatz suchen."), all_of(breaks[!breaks %in% c("q52")]), col_vars = c(q52), version = "summary", weighted = T, weight = gewicht) %>% list() %>% set_names("q52")
+
+## Export
+obj <- Filter(function(x) inherits(get(x), c("list")), ls())
+obj <- obj[str_detect(obj, "tab3_")]
+
+list_export <- c()
+
+for (i in 1:length(obj)) {
+  list_export <- c(list_export, get(obj[i]))
+  print(obj[i])
+}
+
+write.xlsx(list_export, "pp_zusatzauswertungen.xlsx", overwrite = T)
+
+write.xlsx(tab3_q1, "test.xlsx", overwrite = T)
+```
+
+# Tabellenband Bericht
+## Datensatz vorbereiten
+```{r}
+pp_tb <- pp
+
+pp_tb <- pp_tb %>% 
+  mutate(q1_rec = fct_recode(q1, 
+                             "HAK" = "Handelsakademie (HAK)",
+                             "HAS" = "Handelsschule (HAS)", 
+                             "HTL" = "HÃ¶here technische und gewerbliche (einschlieÃŸlich kunstgewerblicher) Lehranstalten (HTL)",
+                             "FS (techn.)" = "Gewerbliche, technische und kunstgew. Fachschulen",
+                             "HLW" = "HÃ¶here Lehranstalten für wirtschaftliche Berufe (HLW)",
+                             "FS (wirtschaft.)" = "Fachschule für wirtschaftliche Berufe",
+                             "HLT" = "HÃ¶here Lehranstalt für Tourismus (HLT)",
+                             "FS (tourist.)" = "Hotelfachschule, Tourismusfachschule",
+                             ), 
+         q55_rec = fct_recode(q55, NULL = "Divers"), 
+         richtung_geschlecht = fct_cross(q55_rec, q1_schulform, sep = " - "),
+         richtung_geschlecht = fct_recode(richtung_geschlecht, 
+                                          "Männlich - Techn.-gewerbl." = "Männlich - Technisch-(kunst)gewerblich", 
+                                          "Weiblich - Techn.-gewerbl." = "Weiblich - Technisch-(kunst)gewerblich"),
+         q28_rec = fct_recode(q28, 
+                              "1-4 MA" = "1-4 MitarbeiterInnen", 
+                              "5-9 MA" = "5-9 MitarbeiterInnen",
+                              "10-49 MA" = "10-49 MitarbeiterInnen",
+                              "50-99 MA" = "50-99 MitarbeiterInnen",
+                              "100-250 MA" = "100-250 MitarbeiterInnen", 
+                              "Ãœber 250 MA" = "Ãœber 250 MitarbeiterInnen"), 
+         q57a_rec = fct_recode(q57a, 
+                              "Deutsch und andere Sprache(n)" = "Ãœberwiegend Deutsch und andere Sprache(n)", 
+                              "Andere Sprache(n) und Deutsch" = "Ãœberwiegend andere Sprache(n) und Deutsch", 
+                              "Nur andere Sprache(n) als Deutsch" = "Andere Sprache(n) als Deutsch"), 
+         q59_sozialer_hintergrund = fct_recode(q59_sozialer_hintergrund, 
+                                               "Niedrig" = "niedrig", 
+                                               "Mittel" = "mittel",
+                                               "Gehoben" = "gehoben",
+                                               "Hoch" = "hoch"), 
+         total = "-", 
+         q27_rec = fct_recode(q27, 
+                              "Ja" = "Ja, das Praktikum entspricht vollständig meiner Ausbildungsrichtung", 
+                              "Mit Ausbildungsrichtung verwandt" = "Ja, das Praktikum ist mit meiner Ausbildungsrichtung verwandt",
+                              "Nein" = "Nein, gar nicht"), 
+         q53_rec = fct_recode(q53, 
+                              "Suche nach Arbeitsplatz" = "Ich werde mir einen Arbeitsplatz suchen.", 
+                              "Weiterführende Ausbildung" = "Ich werde eine weiterführende Ausbildung beginnen.", 
+                              "WeiÃŸ noch nicht genau" = "WeiÃŸ noch nicht genau"), 
+         q24_rec = fct_recode(q24, 
+                              "Regional" = "Regional, in der Nähe", 
+                              "Ãœberregional" = "Ãœberregional, weiter weg (z.B. auch anderes Bundesland)", 
+                              "Im Ausland" = "Im Ausland"
+                              ))
+
+attr(pp_tb$q1_rec, "label") <- "Schulform"
+attr(pp_tb$richtung_geschlecht, "label") <- "Geschlecht - Richtung"
+attr(pp_tb$q1_schultyp, "label") <- "Schultyp"
+attr(pp_tb$q4, "label") <- "Bundesland Schule"
+attr(pp_tb$q28_rec, "label") <- "GrÃ¶ÃŸe Betrieb"
+attr(pp_tb$q57a_rec, "label") <- "Sprache Zuhause"
+attr(pp_tb$q59_sozialer_hintergrund, "label") <- "Familiärer Bildungshintergrund"
+attr(pp_tb$total, "label") <- "Gesamt"
+attr(pp_tb$q36, "label") <- "Unklarheiten im Dienstvertrag"
+attr(pp_tb$q27_rec, "label") <- "Entsprechung Praktikum - Ausbildungsrichtung"
+attr(pp_tb$q51, "label") <- "Betriebliches Beschäftigungsangebot nach Ausbildung"
+attr(pp_tb$q53_rec, "label") <- "Pläne nach Ausbildung"
+attr(pp_tb$q24_rec, "label") <- "Ort des Praktikums"
+
+
+
+# breaks_tab <- pp_tb %>% select(total, q1_rec, richtung_geschlecht, q1_schultyp, q4, q28_rec, q57a_rec, q59_sozialer_hintergrund) %>% names()
+
+breaks_tab <- pp_tb %>% select(total, q1_rec, richtung_geschlecht, q1_schultyp, q4, q28_rec, q57a_rec, q59_sozialer_hintergrund, q58_notendurchschnitt, q24_rec, q27_rec, q36, q31_ueberstunden, q51, q53_rec) %>% names()
+
+```
+
+## Tabellenband generieren
+```{r}
+# Optionsantwort
+tab_tb_q27 <- tabellenband_bivariat(pp_tb, row_vars = all_of(breaks_tab), col_vars = q27, version = "summary", weight = gewicht, weighted = T, show_n = T, pub_reduced = T) %>%
+  set_names("q27")
+
+# Mehrfachantwort
+tab_tb_q44 <- table_mc_bi(pp_tb, row_vars = all_of(breaks_tab), col_vars = c(q44_1:q44_5, q44_other2), weight = gewicht, weighted = T, show_n = T, pub_reduced = T) %>% list() %>% set_names("q44")
+
+# Mittelwert
+tab_tb_q49 <- table_mean_bi(pp_tb, all_of(breaks_tab), col_vars = c(q49_1_n:q49_4_n), version = "summary", weighted = T, weight = gewicht, pub_reduced = T) %>% list() %>% set_names("q49_arbeitsmarkt")
+
+
+obj <- Filter(function(x) inherits(get(x), c("list")), ls())
+obj <- obj[str_detect(obj, "tab_tb")]
+
+list_export <- c()
+
+for (i in 1:length(obj)) {
+  list_export <- c(list_export, get(obj[i]))
+  print(obj[i])
+}
+
+write.xlsx(list_export, "pp_tabellenband_berichtanhang.xlsx", overwrite = T, startRow = 1)
+
+
+
+```
+
+
+
+
+
+
+
+
+

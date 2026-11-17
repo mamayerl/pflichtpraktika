@@ -1,2 +1,6 @@
 .Rproj.user
 *.sav
+*.RData
+*.docx
+*.xlsx
+*.pdf

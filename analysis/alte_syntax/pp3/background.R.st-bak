@@ -1,0 +1,23 @@
+library(tidyverse)
+library(kableExtra)
+library(flextable)
+library(sjmisc)
+library(sjlabelled)
+library(janitor)
+library(officer)
+library(ggplot2)
+
+pp_tb <- readRDS("pp_tb.RData")
+breaks_tab <- readRDS("breaks_tab.RData")
+lbl.var.df <- readRDS("Variablenabgleich_alt_neu.RData")
+
+
+tbl.kat <- map(kat.vars[], ~ tbl.band.fnc(pp_tb, var = .x, brk = breaks_tab, weighted = T, weight = "gewicht"))
+saveRDS(tbl.kat, "tbl_kategorisch.RData")
+# tbl.kat <- map(kat.vars, ~ 
+#                  tbl.band.fnc(pp_tb, var = .x, brk = breaks_tab, weighted = T, weight = "gewicht"))
+# tbl.mehr <- map(mehr.vars, ~
+#                   tbl.band.fnc(pp_tb, var = .x, brk = breaks_tab, weighted = T, weight = "gewicht"))
+# kat.fig.single <- list()
+# kat.fig.single <- map(kat.fig[[1]], ~ fig.fnc(.x, x.achse = p, y.achse = var, farbe = f, order.y = T, legends = T, title.wrap = 70, rev.col.scale = T))
+# saveRDS(kat.fig.single, "kat.fig.single.RData")

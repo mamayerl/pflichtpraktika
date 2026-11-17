@@ -1,0 +1,312 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Vorbereitung
+
+```{r libraries}
+library(tidyverse)
+library(kableExtra)
+library(flextable)
+library(sjmisc)
+library(sjlabelled)
+library(janitor)
+```
+
+
+```{r load-data}
+# getwd()
+pp <- readRDS("pp_bereinigt.RData")
+lbl.var.df <- readRDS("Variablenabgleich_alt_neu.RData")
+
+pp[c("q01_rec",
+       "ausbildungsfeld",
+       "schultyp",
+       "Bundesland",
+       "schultyp_rec")] <- set_label(pp[c("q01_rec",
+                                            "ausbildungsfeld",
+                                            "schultyp",
+                                            "Bundesland",
+                                            "schultyp_rec")],
+                                 c("Schultyp dichotomisiert",
+                                   "Ausbildungsfeld",
+                                   "Schultyp",
+                                   "Bundesland des Schulstandorts",
+                                   "Schultyp nach PP2 reorganisiert"))
+
+
+load("pp2.RData")
+pp.alt <- pp2
+rm(pp2)
+```
+
+
+# Funktionen
+
+```{r functions}
+vorlagen.path <- paste0(getwd() %>% str_remove("(?<=\\/data\\/).+"), "8_Mitarbeiterordner/Georg/Vorlagen/")
+
+# source(paste0(vorlagen.path,"functions_tabellenband.R"), encoding = "latin1")
+source(paste0(vorlagen.path,"functions_praktisch.R"), encoding = "latin1")
+
+outpath <- "Grafiken"
+```
+
+
+```{r parameters}
+
+
+
+oeibf_fig_color_palette <- tribble( ~number, ~colors,
+                                          1, c("#ec7d30"),
+                                          2, c("#843b0d","#c45912"),
+                                          3, c("#843b0d","#f3b283","#fbe5d6"),
+                                          4, c("#76933b","#c3d59b","#d99694","#bf504d"),
+                                          5, c("#843b0d","#c55a11","#ec7d30","#f4b283","#f8cbac"),
+                                          6, c("#76933b","#70ad47","#c3d59b","#e5b9b8","#d89794","#bf504d"),
+                                          7,  c("#77923d","#9bbb59","#bacde5","#96b3d6","#4f80be","#b4a2c7","#bfbfbf"))
+
+```
+
+
+# Grafiken
+
+## pp3_Präsi_intern_AK
+
+```{r test}
+
+### label-DF extrahieren
+lbl.kat <- ft.label.fnc(vart = "Kategorisch|Mehrfach")
+### Variablen extrahieren
+kat.gg <- map(lbl.kat, ~ .x %>% select(pp.variable) %>% unlist) %>% 
+  unlist %>% 
+  as.vector %>% 
+  unique
+
+kat.gg <- c(
+  "q16",
+  "g20_1",
+  "g20_2",
+  "g20_3",
+  # Arbeitszeit
+  "q32",
+  "q31_ueberstunden",
+  # Zufriedenheit
+  "q26",
+  "q49",
+  "q53",
+  "cluster_qualitaet_3",
+  # Rechte
+  "q54_2",
+  "q46_SQ010",
+  "q34",
+  "q23_11",
+  # unbezahlte
+  # schultyp_rec x q37
+  "q37",
+  "q38_einkommen_systematik2",
+  "g22_",
+  "g21_",
+  "q17_"
+  ) %>% 
+  paste0(collapse = "|")
+x <- names(pp)[names(pp) %>% str_detect(kat.gg)]
+kat.gg <- x[x %>% str_detect("_n$|_other", negate = T)]
+
+
+### Häufigkeiten
+kat.fig <- prep.fig.fnc(pp, kat.gg, out.labs = T, chained.labels = T) %>% 
+  compact
+
+# kat.fig <- list()
+# for (i in 1:length(kat.gg)) {
+#    kat.fig[[i]] <- prep.fig.fnc(pp, kat.gg[[i]], out.labs = T, chained.labels = T) %>% 
+#   compact
+# }
+
+kat.fig[[3]] <- kat.fig[[3]] %>% 
+  mutate(mc = if_else(var %>% str_detect("g22|g21|g17"), T, F))
+
+### Single == [[1]]
+# Plots über for-loop erzeugen
+kat.fig.single <- list()
+for (i in 1:length(kat.fig[[1]])) {
+# for (i in 1) {
+   kat.fig.single[[i]] <- fig.fnc(kat.fig[[1]][[i]], x.achse = p, y.achse = label, farbe = f, order.y = T, legends = T, title.wrap = 70, rev.col.scale = T, axis.text = T, title.true = T)
+}
+
+### multiple == [[2]]
+# Plots über for-loop erzeugen
+kat.fig.mult <- list()
+for (i in 1:length(kat.fig[[2]])) {
+# for (i in 1) {
+   kat.fig.mult[[i]] <- fig.fnc(kat.fig[[2]][[i]], x.achse = p, y.achse = label, farbe = f, order.y = T, legends = T, title.wrap = 70, rev.col.scale = T, axis.text = T, title.true = F)
+}
+
+
+### Speichern
+fig.list <- c(kat.fig.single, kat.fig.mult)
+saveRDS(fig.list, "Grafiken/ppt-anna-raith.RData")
+# fig.list <- readRDS("Grafiken/ppt-anna-raith.RData")
+
+map2(fig.list, 
+     1:length(fig.list), ~
+       ggsave(plot = .x, file=paste0(outpath,"/pp-fig-",.y,".png"), device = "png", height = 4, width = 10, units = "in"))
+
+map2(fig.list[15:17], 
+     15:17, ~
+       ggsave(plot = .x, file=paste0(outpath,"/pp-fig-",.y,".png"), device = "png", height = 4, width = 8, units = "in"))
+
+
+library(openxlsx)
+kat.fig[[3]] %>% 
+  write.xlsx(paste0(outpath,"/grafik-labels.xlsx"))
+### eventuell gewisse Variablen rekodieren
+# x <- reverse.fct.fnc(pp, "cluster_qualitaet_2")
+
+```
+
+
+# interessante Syntax
+
+```{r bezahlt}
+
+# var.finder.val.labels.fnc(pp,"bezahlt") %>% 
+#   View
+var.finder.label.fnc(pp,"bezahl|Bezahl") %>% 
+  View
+var.finder.label.fnc(pp,"Einkom") %>% 
+  View
+varnames <- var.finder.label.fnc(pp,"Geld|geld") %>% 
+  select(variable) %>% 
+  unlist %>% 
+  as.vector
+varnames <- c(varnames,"q45_6","q38_einkommen_kat")
+varnames <- varnames[-which(varnames %in% c("q38_1","q38_2","q38_3","q38_eink_gesamt",
+                                            "q38_taschengeld_kat","q38_einkommen_kat","q38_trinkgeld_kat"))] #<- 
+
+labs <- pp %>%
+  select(all_of(varnames)) %>%
+  get_label %>%
+  named.to.df.fnc
+
+labs <- labs %>%
+  mutate(frage = label,
+         label = ifelse(label %>% str_detect("\\["), 
+               label %>% str_extract("(?<=\\[).+(?=\\])"),
+               label),
+         chained = paste0(name," ", label))
+
+fig.df.1 <- map2_dfr(pp %>%
+                       select(varnames),
+                   labs$chained, ~ .x %>% 
+                     na.omit %>% 
+                     fct_count(prop = T) %>% 
+                     mutate(var = factor(.y), .before= 1) %>% 
+                     mutate(nr = nrow(.)))
+
+fig.df.1 <- fig.df.1 %>%
+  mutate(strng = str_extract(var,"^q\\d+|^g\\d+")) %>% 
+  group_by(var) %>% 
+  mutate(total = sum(n),
+         var = paste0(var, " (n=",total,")")
+         ) %>% 
+  ungroup
+
+
+single <- fig.df.1 %>% 
+  filter(strng %in% mult == F)
+single.list <- map(single$strng %>% unique, ~ single %>% 
+                     filter(strng == .x) %>% 
+                     mutate(f = fct_rev(f)))
+
+fig.single <- map(single.list, ~ fig.fnc(.x, x.achse = p, y.achse = var, farbe = f, order.y = T, legends = T), title.wrap = 70)
+ggsave(plot=fig.single[[1]], file=paste0(outpath,"/bezahlung-fig-1.png"), device = "png", height = 5, width = 12, units = "in")
+ggsave(plot=fig.single[[2]], file=paste0(outpath,"/bezahlung-fig-2.png"), device = "png", height = 4, width = 11, units = "in")
+ggsave(plot=fig.single[[3]], file=paste0(outpath,"/bezahlung-fig-3.png"), device = "png", height = 4, width = 10, units = "in")
+
+
+### Einkommen gesamt
+fig <- pp %>% 
+  select(q38_einkommen,q38_taschengeld,q38_trinkgeld,q38_eink_gesamt) %>% 
+  pivot_longer(everything()) %>% 
+  filter(value < 3000) %>% 
+  ggplot(aes(y=value, x=name)) + 
+  geom_boxplot(fill = "#c45912") +
+  scale_x_discrete(labels = c("Einkommen gesamt","Einkommen","Taschengeld","Trinkgeld")) +
+  theme_bw() +
+  theme(text = element_text(size = 14),
+          legend.position="bottom",
+          axis.title.x = element_blank(),
+        # axis.text.x = element_blank(),
+        # axis.ticks.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.line = element_line(size = 0.3),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.border = element_blank(),
+          panel.background = element_blank()) #+
+  # ggtitle(pp %>% 
+  #           select(q38_eink_gesamt) %>% 
+  #           get_label)#%>% str_wrap(width = title.wrap))
+
+ggsave(plot=fig, file=paste0(outpath,"/bezahlung-fig-4.png"), device = "png", height = 3, width = 10, units = "in")
+
+
+### Kreuztabellen
+
+fig <- pp %>% 
+  select(schultyp_rec, q37) %>% 
+  group_by(schultyp_rec, q37) %>% 
+  reframe(n = n()) %>% 
+  mutate(schultyp_rec = factor(schultyp_rec, levels = c("Handelsakademie (HAK)",
+                                                        "Handelsschule (HAS)",
+                                                        "Gewerbliche, technische und kunstgew. Fachschulen",
+                                                        "Höhere technische und gewerbliche (einschließlich kunstgewerblicher) Lehranstalten (HTL)",
+                                                        "Höhere Lehranstalt für Tourismus (HLT)",
+                                                        "Fachschule für wirtschaftliche Berufe",
+                                                        "Hotelfachschule, Tourismusfachschule",
+                                                        "Höhere Bildungsanstalt für Elementarpädagogik oder Sozialpädagogik",
+                                                        "Andere"))) %>% 
+  filter(q37 %>% is.na == F) %>% 
+  filter(schultyp_rec %>% is.na == F) %>% 
+  group_by(schultyp_rec) %>% 
+  mutate(perc = n/sum(n)) %>% 
+  ungroup %>% 
+  fig.fnc(x.achse = perc, y.achse = schultyp_rec, farbe = q37, order.y = T) +
+  ggtitle("Haben Sie eine Bezahlung (Einkommen, betriebliches Taschengeld, Trinkgeld) für das Praktikum erhalten?" %>% str_wrap(width = 50))
+
+ggsave(plot=fig, file=paste0(outpath,"/bezahlung-fig-5.png"), device = "png", height = 6, width = 10, units = "in")
+
+```
+
+
+
+# Breaks
+
+```{r}
+
+breaks <- pp.alt %>% select(q1, q1_schulform, q1_schultyp, q4, q24, q27, q28, q29, q31_ueberstunden, q36, q40, q51, q53, q55, q57a, q58_notendurchschnitt, q59_sozialer_hintergrund) %>% names()
+
+breaks <- lbl.var.df %>% 
+  filter(pp.alt.variable %in% breaks) %>% 
+  select(pp.variable) %>% 
+  unlist %>% 
+  na.omit %>% 
+  as.vector
+
+pp %>% 
+  select(all_of(breaks)) %>% 
+  get_label %>% 
+  named.to.df.fnc("Variablenname","Beschriftung") %>% 
+  write.xlsx("Breaks.xlsx")
+
+
+```
+
+
+
+# Weitere Funktionen
+

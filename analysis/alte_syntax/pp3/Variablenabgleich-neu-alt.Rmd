@@ -1,0 +1,354 @@
+---
+title: "Variablenabgleich-neu-alt"
+author: "Georg Kessler"
+date: "2024-03-06"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Variablenabgleich alt und neu
+
+Die Syntax dient dazu, Variablenbeschriftungen im vorangegangenen DS im aktuellen samt Variablennamen zu identifizieren. Das Ziel ist eine Tabelle mit alten und neuen Variablen und Beschriftungen.
+
+Die Syntax muss angepasst werden. 
+
+lbl.var.df wird aktuell von pp3_auswertung_v1.Rmd verwendet. Eventuell umbenennen.
+
+### Letzter Stand: 
+- neu aufsetzen mit aktuellem pp. --> Variablenlabels in lbl.var.df nicht richtig zugewiesen (z.b. 38_einkommen_systematik2 == "Fahrtkosten (kategorisiert)")
+
+```{r alt-data}
+
+library(tidyverse)
+library(sjlabelled)
+library(sjmisc)
+
+
+pp <- readRDS("pp.RData")
+pp_origin <- readRDS("pp3.RData")
+
+load("pp2.RData")
+pp.alt <- pp2
+
+```
+
+```{r functions}
+vorlagen.path <- paste0(getwd() %>% str_remove("(?<=\\/data\\/).+"), "8_Mitarbeiterordner/Georg/Vorlagen/")
+
+# source(paste0(vorlagen.path,"functions_tabellenband.R"), encoding = "latin1")
+source(paste0(vorlagen.path,"functions_praktisch.R"), encoding = "latin1")
+```
+
+
+
+```{r vorbereiten}
+
+### alle Variablen, die nach "_" einen Buchstaben haben (also keinen Digit), werden hier ausgewiesen
+lbl.comp.var.alt <- pp.alt %>%
+  select(matches("(_\\D)")) %>% 
+  select(-matches("other\\d*$")) %>% 
+  # select(-matches("other")) %>% 
+  # select(-matches("_n$|_total$")) %>% 
+  names
+
+alt.var <- pp.alt %>% 
+  select(-all_of(lbl.comp.var.alt)) %>% 
+  select(matches("(^q\\d+|^g\\d+)")) %>% 
+  names
+
+lbl.var.df <- tibble(pp.alt.variable = pp.alt %>% select(all_of(alt.var)) %>% names,
+                     pp.alt.label = pp.alt %>% select(all_of(alt.var)) %>% get_label)
+
+lbl.var <- pp.alt %>% 
+  select(-all_of(lbl.comp.var.alt)) %>% 
+  select(matches("(^q\\d+|^g\\d+)")) %>%
+  get_label
+
+# damit erstelle ich eine Vergleichstabelle, wo Variablen im neuen Datensatz anhand der Variablenbeschriftung identifiziert werden.
+for(i in seq(lbl.var)){
+  if(as.vector(lbl.var[i]) %in% as.vector(get_label(pp))){
+    pp.label.var <- get_label(pp)[get_label(pp) == lbl.var[i]][1]
+    
+    lbl.var.df[lbl.var.df$pp.alt.variable == names(lbl.var[i]),"pp.variable"] <- names(pp.label.var)
+    lbl.var.df[lbl.var.df$pp.alt.variable == names(lbl.var[i]),"pp.label"] <- pp.label.var
+  }else{
+    lbl.var.df[lbl.var.df$pp.alt.variable == names(lbl.var[i]),"pp.variable"] <- NA
+    lbl.var.df[lbl.var.df$pp.alt.variable == names(lbl.var[i]),"pp.label"] <- NA
+  }
+}
+
+
+# markiert Variablen, die eine Entsprechung haben, bei denen es aber eine Veränderung im Wortlaut gab
+lbl.var.df[,"wortlaut.anders"] <- NA
+
+# Tabelle aufrufen mit mangelhaftem Abgleich, um händisch mit SchlagwÃ¶rtern nach Entsprechungen zu suchen; bleibt offen
+# lbl.var.df %>% 
+#   filter(pp.variable %>% is.na) %>% 
+#   View("gesamt")
+```
+
+
+```{r kernmodul}
+# Zum Vorgang: aus View("gesamt") werden strings exrahiert und mittels var.finder.label.fnc(pp, string) im aktuellen DF gesucht. 
+# - hat sich der Modus von Einzelauswahl zu Mehrfachauswahl geändert, wird dies mittels "[var_prefix]_.+" in pp.variable gekennzeichnet. in pp.label wird mit [â€¦] eingeleitet.
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("erlassen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "erlassen"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("ntsprechende Nachweise "), c(3:5)] <- data.frame("q13_.+","[â€¦] Haben sie dazu entsprechende Nachweise erbringen müssen?",1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Anzahl der Bewerbungen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Anzahl der Bewerbungen"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Anzahl der Bewerbungen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Anzahl der Antworten"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Anzahl der Bewerbungen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Anzahl der Antworten"),1)
+lbl.var.df[str_which(lbl.var.df$pp.alt.label, "Wie würden Sie folgende Aussagen bewerte"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Wie würden Sie folgende Aussagen bewerte"),c(1,1,NA))
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Wie haben Sie den Praktikumsbetrieb gefunden"), c(3:5)] <- data.frame("g22_.+","[â€¦] Wie haben Sie den Praktikumsbetrieb gefunden?",1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Die nächsten Fragen drehen sich darum, wie Sie die Unterstützung durch die Schule rund um das Pflichtpraktikum einschätzen."), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Die nächsten Fragen drehen sich darum, wie Sie die Unterstützung durch die Schule rund um das Pflichtpraktikum einschätzen."),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("ntspricht"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "ntspricht"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Standort"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Standort"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Wann"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Wann"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Wie viele Stunden"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Wie viele Stunden"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Wochenende"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Wochenende"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("schriftlichen Arbeitsvertrag"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "schriftlichen Arbeitsvertrag"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Sozialversicherung"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Sozialversicherung"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Wirtschaftskammer"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Wirtschaftskammer"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("durchschnittlich pro Monat"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "durchschnittlich pro Monat"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Welche Kosten fielen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "[K-k]osten"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("zusätzliche Ausgaben"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "zusätzliche Ausgaben"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Betreuungspersonen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Betreuungspersonen"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Arbeitsklima"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Arbeitsklima"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Ich kenne nun die Rechte"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Ich kenne nun die Rechte"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Arbeitsvertrag] Welche"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Arbeitsvertrag] Welche"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("ortfolio-Mappe"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "ortfolio-Mappe"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("www.praktika-bbs.at"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Praktika Wegweiser"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Individuelle Besprechung"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Individuelle Besprechung"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("bestärkt"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "bestärkt"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("geholfen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "geholfen"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Unbezahlte Pflichtpraktika"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "rbeitsleistung erbracht"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Sommer gearbeitet"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Sommer gearbeitet"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("Rechte.+Bescheid"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "Rechte.+Bescheid"),1)
+lbl.var.df[lbl.var.df$pp.alt.label %>% str_detect("annehmen"), c(3:5)] <- cbind(var.finder.label.fnc(pp, "annehmen"),1)
+
+lbl.var.df <- lbl.var.df %>% 
+  filter(pp.alt.variable %>% str_detect("q5[a-z]", negate = T)) # Die Zusammensetzung ist anders in pp3
+# pp.variable so vorbereiten, dass sie dabei hilft die neuen Variablen zu extrahieren
+if(any(lbl.var.df$pp.variable %>% str_detect("_\\.\\+"), na.rm = T)){
+  lbl.var.df[,"typ.anders"] <- NA
+  x <- lbl.var.df[which(lbl.var.df$pp.variable %>% str_detect("_\\.\\+")),] %>%
+    rowwise %>% 
+    reframe(x = paste0(pp.variable, "; ", pp.label))
+  lbl.var.df[which(lbl.var.df$pp.variable %>% str_detect("_\\.\\+")),"typ.anders"] <- x
+}
+
+## Prüfen, ob das Kernmodul in den DF nach Bereinigung mit vorheriger Prozedur übereinstimmen
+# Suffixe in neuen Variablen entfernen
+
+# lbl.var.df <- lbl.var.df %>%
+#     mutate(pp.variable = str_remove(pp.variable, "_.+"))
+
+x <- names(pp) %>% # aktuelle Variablen
+  str_extract("^.\\d{2}[a]*") %>% 
+  unique
+y <- lbl.var.df$pp.variable %>% # nach Prüfung mittels vorhergehender Welle
+  na.omit %>% 
+  as.vector %>% 
+  unique
+
+z <- x[which(x %in% y == F)] # Welche Variablen sind einzigartig für aktuellen DF
+# pp %>% 
+#   select(matches(z %>% na.omit %>% paste0(collapse = "|"))) %>% 
+#   get_label %>% 
+#   enframe %>% 
+#   View
+
+```
+
+
+```{r neue-variablen}
+### Die im späteren Verlauf des Scripts erstellten Variablen extrahieren [labels of computed variables] und an lbl.var.df anfügen. Labels vergeben soweit bekannt.
+lbl.comp.var.alt.alt <- lbl.comp.var.alt[-which(lbl.comp.var.alt %>% str_detect("_n$|total|other|filter"))]
+
+lbl.comp.var.alt.generic <- lbl.comp.var.alt.alt %>% 
+  str_remove("q\\d{1,2}_")
+
+lbl.var.pp <- pp_origin %>% 
+  names
+
+### Nach Berechnung der neuen Variablen werden diese Objekte wieder verwendet.
+```
+
+```{r labels-df}
+### neue Variablen aus altem und neuen DF zusammenführen mit bestehenden Labels
+lbl.comp.var.alt.neu <- names(pp) %>% str_subset(paste0(lbl.comp.var.alt.generic, collapse = "|")) %>% na.omit %>% as.vector
+labs.1 <- labs %>% 
+  mutate(strng = string %>% str_remove("^_")) %>% 
+  select(-string, -var) 
+
+df.alt <- tibble(strng = lbl.comp.var.alt.alt %>% str_remove("q\\d{0,2}_"),
+                 pp.alt.variable = lbl.comp.var.alt.alt,
+                 pp.alt.label = NA) %>% 
+  left_join(labs.1, by="strng",relationship = "many-to-many") %>% 
+  select(-pp.alt.label) %>% 
+  rename(pp.alt.label = labl)
+
+df.neu <- tibble(strng = lbl.comp.var.alt.neu %>% str_remove("q\\d{0,2}_"),
+                 pp.variable = lbl.comp.var.alt.neu,
+                 pp.label = NA) %>% 
+  left_join(labs.1, by="strng", relationship = "many-to-many") %>% 
+  select(-pp.label) %>% 
+  rename(pp.label = labl)
+
+df.vereint <- left_join(df.alt, df.neu, by="strng",relationship = "many-to-many") %>%
+  select(-strng) %>% 
+  mutate(wortlaut.anders = NA,
+         typ.anders = NA)
+
+lbl.var.df <- lbl.var.df %>% 
+  rbind(df.vereint)
+
+### other2-Variablen anfügen
+y <- pp.alt %>% names %>% str_subset("other2$")
+other2.alt <- tibble(vars.alt = y,
+                     label = pp.alt %>% 
+                       select(all_of(y %>% str_replace("_.+","_1"))) %>% 
+                       get_label %>% 
+                       str_remove("\\[.+\\] "))
+
+y <- pp %>% names %>% str_subset("other2$")
+other2.df <- tibble(vars.df = y,
+                    label = pp %>% 
+                      select(all_of(y %>% str_replace("_.+","_1"))) %>% 
+                      get_label %>% 
+                      str_remove("\\[.+\\] "))
+
+others2 <- other2.alt %>%
+  full_join(other2.df, by="label",relationship = "many-to-many") %>% 
+  mutate(pp.label = ifelse(vars.alt %>% is.na, label, label),
+         pp.alt.label = ifelse(vars.alt %>% is.na, NA, label),
+         wortlaut.anders = NA,
+         typ.anders = NA) %>% 
+  rename(pp.alt.variable = vars.alt,
+         pp.variable = vars.df) %>% 
+  select(pp.alt.variable, pp.alt.label, pp.variable, pp.label, wortlaut.anders, typ.anders)
+
+
+lbl.var.df <- lbl.var.df %>% 
+  rbind(others2)
+
+### Fragetyp hat sich bei manchen Variablen geändert
+x <- lbl.var.df %>% 
+  filter(typ.anders %>% is.na == F) %>% 
+  select(pp.variable) %>% 
+  unlist %>% 
+  str_remove("\\.\\+") 
+
+y <- lbl.var.df %>%
+  filter(typ.anders %>% is.na == F) %>% 
+  select(pp.alt.label, pp.alt.variable) %>% 
+  t %>% 
+  as.data.frame()
+
+typ.anders <- map(x, ~ pp %>% 
+                    select(matches(.x)) %>% 
+                    select(-matches("_n$|_total$|other2$")) %>% 
+                    get_label)
+
+typ.anders.df <- map2_dfr(typ.anders,y, ~ tibble(pp.alt.variable = .y[2],
+                                                 pp.alt.label = .y[1],
+                                                 pp.variable = names(.x),
+                                                 pp.label = .x,
+                                                 wortlaut.anders = 1,
+                                                 typ.anders = 1))
+
+lbl.var.df <- lbl.var.df %>%
+  rbind(typ.anders.df) %>% 
+  slice(-str_which(lbl.var.df$pp.variable,"\\.\\+")) # remove indicator variables
+
+### Nachträgliche Ã„nderungen
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q4"),"pp.variable"] <- "Bundesland"
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q4"),"pp.label"] <- "Bundesland"
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q4"),"wortlaut.anders"] <- 1
+lbl.var.df[which(lbl.var.df$pp.alt.variable %>% str_detect("q10")),"pp.variable"] <- c("q15_1","q15_2")
+lbl.var.df[which(lbl.var.df$pp.alt.variable %>% str_detect("q10")),"wortlaut.anders"] <- 1
+lbl.var.df[which(lbl.var.df$pp.alt.variable %>% str_detect("q10")),"pp.label"] <- pp %>% select(matches("q15")) %>% get_label %>% as.vector
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1_schultyp"), "pp.variable"] <- "q01_rec"
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1_schultyp"), "pp.label"] <- pp$q01_rec %>% get_label
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1_schultyp"), "pp.alt.label"] <- pp.alt$q1_schultyp %>% get_label
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1_schulform"), "pp.variable"] <- "ausbildungsfeld"
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1_schulform"), "pp.label"] <- "Ausbildungsfeld"
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1"), "pp.variable"] <- "schultyp_rec"
+lbl.var.df[which(lbl.var.df$pp.alt.variable == "q1"), "pp.label"] <- "Schultyp"
+lbl.var.df[which(lbl.var.df$pp.variable == "q18_anz_bew"), "pp.label"] <- "[Anzahl Bewerbungen] Bewerbungen"
+
+lbl.var.df[which(lbl.var.df$pp.variable %in% c("q64_sozialer_hintergrund", "q38_einkommen_gesamt_kat", "q38_einkommen_systematik2", "q40_essenskosten_kat", "q40_fahrtkosten_kat", "q40_arbeitskosten_kat")), "pp.label"] <- c("Familiärer Bildungshintergrund", 
+                                                                                                                                                                                                                               "Einkommen gesamt (kategorisiert)",
+                                                                                                                                                                                                                               "Einkommensarten",
+                                                                                                                                                                                                                               "Essenkosten (kategorisiert)",
+                                                                                                                                                                                                                               "Fahrtkosten (kategorisiert)",
+                                                                                                                                                                                                                               "Arbeitskosten (kategorisiert)")
+lbl.var.df[which(lbl.var.df$pp.variable %in% c("q38_taschengeld_kat", "q38_trinkgeld_kat")), "pp.label"] <- c("Taschengeld (kategorisiert)", "Trinkgeld (kategorisiert)")
+## copy Labels from origin to new
+# pp <- copy_labels(pp, pp_origin)
+### to do: für alle "_n", "total" und "other2"-Variablen label und labels zuweisen
+
+# manche Variablen kommen verdoppelt vor. Analytisch ist nur das erste Vorkommen relevant.
+x <- lbl.var.df %>% 
+  count(pp.variable) %>% 
+  filter(n > 1) %>% 
+  select(pp.variable) %>% 
+  na.omit
+
+y <- lbl.var.df %>% 
+  filter(pp.variable %in% unlist(x)) %>% 
+  group_by(pp.variable) %>% 
+  mutate(slce = 1:n()) %>% 
+  arrange(pp.variable) %>% 
+  select(pp.alt.variable, pp.variable, slce)
+
+lbl.var.df <- lbl.var.df %>% 
+  # mutate(slce = 1) %>% 
+  full_join(y, by = c("pp.alt.variable", "pp.variable"),relationship = "many-to-many")
+
+
+### Speichern
+saveRDS(lbl.var.df, "Variablenabgleich_alt_neu.RData")
+
+
+### check: erneut überprüfen, ob fehlende Variablen in pp.variable tatsächlich fehlen
+
+```
+
+
+```{r neue-variablen}
+### In den Tabellenband müssen alle analytisch relevanten Variablen!
+# die Kategorialen Variablen
+# die Multiple.choice variablen
+# die numerischen
+# analytisch relevante werden extra gekennzeichnet
+
+# Numerische Variablen
+numeric.vars.1 <- pp %>% 
+  select(where(is.numeric)) %>% 
+  select(-matches("_n|_total")) %>% 
+  names
+numeric.vars.2 <- pp %>%
+  select(where(~ any(str_detect(.x %>% na.omit,"1 -")))) %>% 
+  names
+
+numeric.vars <- c(numeric.vars.1, numeric.vars.2)
+
+# Mehrfachantwortsets
+mc.vars <- pp %>% 
+  select(where(~ str_detect(.x %>% na.omit,"Nicht Gewählt") %>% any)) %>% 
+  names
+
+# Kategoriale = everything() - numeric.vars - mc.vars
+categ.vars <- pp %>%
+  select(-all_of(c(numeric.vars, mc.vars))) %>% 
+  select(-matches("other2_n"), -matches("other$|_n|_total")) %>% 
+  names
+
+### Alle vars
+all.vars <- c(categ.vars, mc.vars, numeric.vars)
+
+pp %>% 
+  get_label %>% 
+  named.to.df.fnc()
+select(all_of(all.vars))
+```
