@@ -31,6 +31,7 @@ rec_schultyp <- function(data) {
       "BHS" := "Höhere Lehranstalt, Handelsakademie (mit Matura)"
     )
   ]
+  setattr(data$SCHULTYP, "label", "Schultyp")
   return(data)
 }
 
@@ -47,6 +48,7 @@ rec_ausbildungsfeld <- function(data) {
       "Wirtschaftliche Schule" := "Schule für wirtschaftliche Berufe (ohne Tourismus und Sozialberufe)"
     )
   ]
+  setattr(data$AUSBILDUNGSFELD, "label", "Ausbildungsfeld")
   return(data)
 }
 
@@ -146,6 +148,7 @@ rec_bundesland <- function(data) {
       "Wien" = "Wien"
     )
   ]
+  setattr(data$BUNDESLAND, "label", "Bundesland Schule")
   return(data)
 }
 
@@ -172,6 +175,7 @@ rec_betrieb <- function(data) {
         "Weiß nicht"
       )
   ]
+  setattr(data$BETRIEBSGROESSE, "label", "Größe Betrieb")
   return(data)
 }
 
@@ -186,6 +190,7 @@ rec_sprache <- function(data) {
       "Nur andere Sprache(n) als Deutsch" = "Andere Sprache(n) als Deutsch"
     )
   ]
+  setattr(data$SPRACHE_DE, "label", "Sprache Zuhause")
   return(data)
 }
 
@@ -200,6 +205,7 @@ rec_ort <- function(data) {
     ) |>
       fct_relevel("Regional", "Überregional", "Im Ausland")
   ]
+  setattr(data$PRAKTIKUMSORT, "label", "Ort des Praktikums")
   return(data)
 }
 
@@ -218,6 +224,7 @@ rec_plaene <- function(data) {
         "Weiß noch nicht genau"
       )
   ]
+  setattr(data$PLAENE, "label", "Pläne nach Ausbildung")
   return(data)
 }
 
@@ -234,7 +241,11 @@ rec_entsprechung <- function(data) {
     ) |>
       fct_relevel("Ja", "Mit Ausbildungsrichtung verwandt", "Nein")
   ]
-  setattr(data$ENTSPRECHUNG, "label", attr(data$TAET2, "label"))
+  setattr(
+    data$ENTSPRECHUNG,
+    "label",
+    "Entsprechung Praktikum - Ausbildungsrichtung"
+  )
   return(data)
 }
 
@@ -254,7 +265,7 @@ rec_unklarheiten <- function(data) {
     ) |>
       fct_relevel("Ja", "Nein")
   ]
-  setattr(data$UNKLARHEITEN, "label", attr(data$Q36A, "label"))
+  setattr(data$UNKLARHEITEN, "label", "Unklarheiten im Dienstvertrag")
   return(data)
 }
 
@@ -274,7 +285,11 @@ rec_stunden <- function(data) {
       )
     )
   ]
-  setattr(data$ARBEITSSTUNDEN, "label", attr(data$Q31, "label"))
+  setattr(
+    data$ARBEITSSTUNDEN,
+    "label",
+    "Arbeitsstunden pro Woche (Durchschnitt)"
+  )
   return(data)
 }
 
@@ -288,6 +303,11 @@ rec_beschaeftigungsangebot <- function(data) {
     ) |>
       fct_relevel("Ja", "Nein")
   ]
+  setattr(
+    data$BESCHAEFTIGUNGSANGEBOT,
+    "label",
+    "Betriebliches Beschäftigungsangebot nach Ausbildung"
+  )
   return(data)
 }
 
