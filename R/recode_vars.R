@@ -18,6 +18,8 @@ rec_pp <- function(data) {
   data <- rec_stunden(data)
   data <- rec_beschaeftigungsangebot(data)
   data <- rec_berufsbereich(data)
+  data <- rec_bildungshintergrund(data)
+  data <- rec_cluster(data)
   return(data)
 }
 
@@ -308,6 +310,41 @@ rec_beschaeftigungsangebot <- function(data) {
     "label",
     "Betriebliches Beschäftigungsangebot nach Ausbildung"
   )
+  return(data)
+}
+
+# Erstelle Bildungshintergrund der Eltern ----
+# Höchster formaler Abschluss von Vater (Q64A) oder Mutter (Q64B),
+# Kategorisierung analog zu PP2 (q59) und PP3 (q64).
+rec_bildungshintergrund <- function(data) {
+  # Rangfolge der Abschlüsse (1 = niedrigste, 5 = höchste Stufe)
+  rang_abschluss <- c(
+    "Pflichtschule (Hauptschule, Neue Mittelschule, Polytechnische Schule etc.)" = 1,
+    "Lehre, Berufsschule" = 2,
+    "Berufsbildende mittlere Schule (Fachschule, Handelsschule, Schule für Sozialbetreuungsberufe etc.)" = 3,
+    "AHS-Matura (Gymnasium)" = 4,
+    "BHS-Matura (HTL, HAK, HBLA, BAfEP/BASOP, Berufsreifeprüfung)" = 4,
+    "Universität, Fachhochschule, Pädagogische Hochschule, Akademie" = 5
+  )
+  kategorien <- c("Niedrig", "Mittel", "Mittel", "Gehoben", "Hoch")
+
+  data[,
+    # "Weiß nicht" und leere Angaben sind nicht in rang_abschluss enthalten und
+    # werden dadurch zu NA; bekanntes Elternteil zählt, wenn das andere fehlt
+    BILDUNGSHINTERGRUND := {
+      rang <- pmax(
+        rang_abschluss[as.character(Q64A)],
+        rang_abschluss[as.character(Q64B)],
+        na.rm = TRUE
+      )
+      rang[is.infinite(rang)] <- NA
+      factor(
+        kategorien[rang],
+        levels = c("Niedrig", "Mittel", "Gehoben", "Hoch")
+      )
+    }
+  ]
+  setattr(data$BILDUNGSHINTERGRUND, "label", "Familiärer Bildungshintergrund")
   return(data)
 }
 

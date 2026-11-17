@@ -43,12 +43,14 @@ breaks <- c(
     "BUNDESLAND",
     "BETRIEBSGROESSE",
     "SPRACHE_DE",
+    "BILDUNGSHINTERGRUND",
     "PRAKTIKUMSORT",
     "PLAENE",
     "ENTSPRECHUNG",
     "UNKLARHEITEN",
     "ARBEITSSTUNDEN",
     "BESCHAEFTIGUNGSANGEBOT",
+    "CLUSTER_QUALITAET_3",
     "BERUFSBEREICH"
 )
 
@@ -58,8 +60,21 @@ tab1 <- databand2::tableband_bi(
     row_vars = breaks,
     col_vars = "Q02",
     weights = "GEWICHT",
-    summary = TRUE
+    summary = F
 )
 
 
 PP[, .N, keyby = .(SPRACHE_DE, Q61)]
+
+# Kontrolle der Clusterlösungen ----
+PP[, .N, keyby = CLUSTER_QUALITAET_4]
+
+# Mittelwertsprofil der Items je Cluster (1 = sehr gut)
+PP[,
+    lapply(.SD, \(x) mean(scale_num(x), na.rm = TRUE)),
+    keyby = CLUSTER_QUALITAET_4,
+    .SDcols = paste0("Q45_", 1:10)
+]
+
+# Plausibilitätscheck: Cluster gegen Gesamturteil
+PP[, .N, keyby = .(CLUSTER_QUALITAET_4, Q45_11)]
