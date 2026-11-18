@@ -63,6 +63,53 @@ tab1 <- databand2::tableband_bi(
     summary = F
 )
 
+# Beispieltabelle für die Multiple-Choice-Batterie Q17 (Hilfsmittel der Suche) ----
+# Itemvektoren inkl. rekodiertem "Sonstiges" und Flag für "keine Antwort"
+q17_items <- c(paste0("Q17_", 1:14), "Q17_OTHER_REC", "Q17_NOANSWER")
+
+tab_q17 <- tableband_mc(
+    PP,
+    row_vars = breaks,
+    col_vars = q17_items,
+    count_factor = "Ja",
+    weight = "GEWICHT",
+    n_weighted = FALSE
+)
+
+# Mittelwerttabelle der Qualitätsbewertungen Q45 (1 = sehr gut) ----
+q45_items <- paste0("Q45_", 1:11, "_NUM")
+
+tab_q45 <- tableband_mean(
+    PP,
+    row_vars = breaks,
+    col_vars = q45_items,
+    weight = "GEWICHT",
+    n_weighted = FALSE,
+    item_labels = TRUE,
+    item_sep = "]",
+    item_label = "left",
+    char_subst = "[",
+    summary = TRUE
+)
+
+# Write Excel ----
+# tableband_bi() liefert eine benannte Liste von Tabellen (eine je col_var)
+tabs <- c(
+    tab1,
+    list(tab_q17 = tab_q17, tab_q45 = tab_q45)
+)
+
+openxlsx::write.xlsx(
+    tabs,
+    "PP_proto_tabellenband.xlsx",
+    overwrite = TRUE
+)
+
+
+# Test
+PP[, .N, keyby = .(Q17_1, SCHULTYP)]
+PP[, .N, keyby = .(Q17_2, SCHULTYP)]
+
 
 PP[, .N, keyby = .(SPRACHE_DE, Q61)]
 

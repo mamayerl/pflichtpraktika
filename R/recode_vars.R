@@ -19,6 +19,8 @@ rec_pp <- function(data) {
   data <- rec_beschaeftigungsangebot(data)
   data <- rec_berufsbereich(data)
   data <- rec_bildungshintergrund(data)
+  data <- rec_q17(data)
+  data <- rec_q45(data)
   data <- rec_cluster(data)
   return(data)
 }
@@ -358,5 +360,76 @@ rec_berufsbereich <- function(data, min_n = 50) {
       other_level = "Sonstige Berufsbereiche"
     )
   ]
+  return(data)
+}
+
+# Erstelle Multiple-Choice-Batterie Q17 ----
+# "Warum war es aus Ihrer Sicht schwierig eine Stelle zu finden?" (Filter: Q16)
+rec_q17 <- function(data, items = paste0("Q17_", 1:14)) {
+  # rekodierte Variablen verwerfen, damit die Funktion wiederholbar bleibt
+  alte_cols <- intersect(c("Q17_OTHER_REC", "Q17_NOANSWER"), names(data))
+  if (length(alte_cols) > 0) {
+    data[, (alte_cols) := NULL]
+  }
+
+  # leerer Text bei "Sonstiges" wird als "nicht gewählt" gewertet
+  data[is.na(Q17_OTHER), Q17_OTHER := ""]
+  data <- databand2::create_mc_var(
+    data,
+    var_names = items,
+    var_other = "Q17_OTHER",
+    vec_true = "Ja",
+    vec_false = "Nicht Gewählt"
+  )
+  # create_mc_var hängt an "Sonstiges" ein "_rec" in Kleinschreibung an
+  setnames(data, "Q17_OTHER_rec", "Q17_OTHER_REC")
+  setattr(data$Q17_OTHER_REC, "label", attr(data$Q17_OTHER, "label"))
+
+  # Q17 ist eine Filterfrage nach Q16: außerhalb des Filters sind die Items
+  # nicht gültig (create_mc_var kann den Filter nur auf Zeichenvektoren anwenden)
+  data[!Q16 %in% c("Schwierig", "Sehr schwierig"), (items) := NA]
+  data[
+    !Q16 %in% c("Schwierig", "Sehr schwierig"),
+    Q17_OTHER_REC := NA_character_
+  ]
+
+  # "Keine Antwort": alle Items und "Sonstiges" nicht gewählt
+  item_cols <- c(items, "Q17_OTHER_REC")
+  data[,
+    Q17_NOANSWER := {
+      all_na <- Reduce(`&`, lapply(.SD, is.na))
+      any_yes <- Reduce(
+        `|`,
+        lapply(.SD, \(x) !is.na(x) & as.character(x) == "Ja")
+      )
+      fcase(
+        all_na  , NA_character_   ,
+        any_yes , "Nicht Gewählt" ,
+        default = "Ja"
+      )
+    },
+    .SDcols = item_cols
+  ]
+  data[,
+    Q17_NOANSWER := factor(Q17_NOANSWER, levels = c("Ja", "Nicht Gewählt"))
+  ]
+  # Label im Batterie-Format, damit tableband_mc() das Item ausweist
+  setattr(
+    data$Q17_NOANSWER,
+    "label",
+    "[Keine Antwort] Warum war es aus Ihrer Sicht schwierig eine Stelle zu finden?"
+  )
+  return(data)
+}
+
+# Erstelle numerische Ratingskalen für Q45 ----
+# Schulnotenskala 1 (sehr gut) bis 5 (nicht genügend); die Originalfaktoren
+# bleiben erhalten, die numerischen Varianten erhalten das Suffix "_NUM"
+rec_q45 <- function(data, items = paste0("Q45_", 1:11)) {
+  for (item in items) {
+    num_var <- paste0(item, "_NUM")
+    data[, (num_var) := scale_num(get(item))]
+    setattr(data[[num_var]], "label", attr(data[[item]], "label"))
+  }
   return(data)
 }
