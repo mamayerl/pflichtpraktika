@@ -8,6 +8,9 @@ License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
     license
 Encoding: UTF-8
 Imports: 
-    databand2
+    databand2,
+    flextable,
+    officer,
+    openxlsx
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 8.0.0

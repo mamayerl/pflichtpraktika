@@ -37,7 +37,7 @@ PP <- rec_pp(PP)
 breaks <- c(
     "SCHULTYP",
     "SCHULFORM",
-    "GESCHLECHT",
+    #"GESCHLECHT",
     "GESCHLECHT_FELD",
     "AUSBILDUNGSFELD",
     "BUNDESLAND",
@@ -55,22 +55,22 @@ breaks <- c(
 )
 
 # Erstelle eine Beispieltabelle für die Variable Q02 (Ausbildungsfeld) ----
-tab1 <- databand2::tableband_bi(
+Q02_bivariat <- databand2::tableband_bi(
     PP,
     row_vars = breaks,
-    col_vars = "Q02",
+    col_vars = "BILDUNGSHINTERGRUND",
     weights = "GEWICHT",
-    summary = F
+    summary = TRUE
 )
 
 # Beispieltabelle für die Multiple-Choice-Batterie Q17 (Hilfsmittel der Suche) ----
 # Itemvektoren inkl. rekodiertem "Sonstiges" und Flag für "keine Antwort"
-q17_items <- c(paste0("Q17_", 1:14), "Q17_OTHER_REC", "Q17_NOANSWER")
+Q17_items <- c(paste0("Q17_", 1:14), "Q17_OTHER_REC", "Q17_NOANSWER")
 
-tab_q17 <- tableband_mc(
+Q17_multiplechoice <- tableband_mc(
     PP,
     row_vars = breaks,
-    col_vars = q17_items,
+    col_vars = Q17_items,
     count_factor = "Ja",
     weight = "GEWICHT",
     n_weighted = FALSE
@@ -79,7 +79,7 @@ tab_q17 <- tableband_mc(
 # Mittelwerttabelle der Qualitätsbewertungen Q45 (1 = sehr gut) ----
 q45_items <- paste0("Q45_", 1:11, "_NUM")
 
-tab_q45 <- tableband_mean(
+Q45_Mittelwert <- tableband_mean(
     PP,
     row_vars = breaks,
     col_vars = q45_items,
@@ -89,19 +89,21 @@ tab_q45 <- tableband_mean(
     item_sep = "]",
     item_label = "left",
     char_subst = "[",
-    summary = TRUE
+    summary = TRUE,
+    var_labels = TRUE
 )
 
 # Write Excel ----
 # tableband_bi() liefert eine benannte Liste von Tabellen (eine je col_var)
 tabs <- c(
-    tab1,
-    list(tab_q17 = tab_q17, tab_q45 = tab_q45)
+    Q02_bivariat,
+    list(Q17_multiplechoice, Q45_Mittelwert)
 )
+names(tabs) <- c("Q02_bivariat", "Q17_multiplechoice", "Q45_Mittelwert")
 
 openxlsx::write.xlsx(
     tabs,
-    "PP_proto_tabellenband.xlsx",
+    "PP4_proto_tabellenband.xlsx",
     overwrite = TRUE
 )
 
